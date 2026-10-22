@@ -9,8 +9,12 @@ import {
   buildLeads,
   EMPTY_FILTERS,
   formatPay,
+  inGroup,
+  isExpired,
+  LEAD_EXPIRY_DAYS,
   matches,
   sortBy,
+  STATUS_GROUPS,
   STATUS_LABELS,
   weekly,
   withEditedStatus,
@@ -18,6 +22,7 @@ import {
   type Filters,
   type Lead,
   type SortDir,
+  type StatusGroup,
   type Status,
 } from './model'
 import { DEFAULT_PROFILE, hasProfile, isRecommended, resumeFamilies, resumeSkills, scoreLead, type Match, type Profile } from './recommend'
@@ -64,6 +69,7 @@ export default function App() {
   const [error, setError] = useState('')
   const [lastSync, setLastSync] = useState<number>()
   const [tab, setTab] = useState<Tab>('applications')
+  const [appGroup, setAppGroup] = useState<StatusGroup>('all')
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS)
   const syncing = useRef(false)
 
@@ -181,12 +187,16 @@ export default function App() {
     for (const r of records) c[r.category]++
     return c
   }, [records])
-  const real = applications.filter((a) => a.status !== 'scam')
-  const scams = applications.length - real.length
-  const responded = real.filter((a) => a.emails.some((e) => e.category === 'response') || ['responded', 'interviewing', 'offer'].includes(a.status)).length
-  const heardBack = real.filter((a) => a.emails.some((e) => e.category !== 'application') || a.status !== 'applied').length
-  const rejected = real.filter((a) => a.status === 'rejected').length
-  const chart = useMemo(() => weekly(records, START_DATE), [records])
+  const groupCount = (g: StatusGroup) => applications.filter((a) => inGroup(a, g)).length
+  const total = groupCount('all')
+  const scams = groupCount('scam')
+  const responded = groupCount('responses')
+  const rejected = groupCount('rejected')
+  const chart = useMemo(() => weekly(applications, START_DATE), [applications])
+  const showGroup = (g: StatusGroup) => {
+    setAppGroup(g)
+    setTab('applications')
+  }
 
   const hasData = records.length > 0
 
@@ -234,13 +244,19 @@ export default function App() {
       {hasData && (
         <>
           <section className="tiles">
-            <Tile label="Applications" value={real.length} sub={scams ? `not counting ${scams} flagged as scams` : `${counts.application} confirmation emails`} />
+            <Tile
+              label="Applications"
+              value={total}
+              sub={scams ? `not counting ${scams} flagged as scams` : `${groupCount('waiting')} still waiting`}
+              onClick={() => showGroup('all')}
+            />
             <Tile
               label="Responses"
               value={responded}
-              sub={real.length ? `${Math.round((heardBack / real.length) * 100)}% of applications heard back` : ''}
+              sub={total ? `${Math.round(((responded + rejected) / total) * 100)}% heard back, counting rejections` : ''}
+              onClick={() => showGroup('responses')}
             />
-            <Tile label="Rejections" value={rejected} />
+            <Tile label="Rejections" value={rejected} sub={total ? `${Math.round((rejected / total) * 100)}% of applications` : ''} onClick={() => showGroup('rejected')} />
             <Tile label="Job leads" value={leads.length} sub={`from ${counts.lead} LinkedIn, Indeed and Glassdoor emails`} />
           </section>
 
@@ -270,7 +286,7 @@ export default function App() {
             <nav className="tabs" role="tablist">
               {(
                 [
-                  ['applications', `Applications (${applications.length})`],
+                  ['applications', `Applications (${total})`],
                   ['leads', `Job leads (${leads.length})`],
                   ['emails', `All emails (${records.length})`],
                 ] as const
@@ -281,7 +297,7 @@ export default function App() {
               ))}
             </nav>
             {tab !== 'emails' && <FilterBar filters={filters} onChange={setFilters} />}
-            {tab === 'applications' && <ApplicationsTable apps={applications} filters={filters} onEdit={editAppStatus} />}
+            {tab === 'applications' && <ApplicationsTable apps={applications} filters={filters} onEdit={editAppStatus} group={appGroup} onGroup={setAppGroup} />}
             {tab === 'leads' && (
               <>
                 <ProfileCard profile={profile} onSave={saveProfile} />
@@ -310,13 +326,14 @@ export default function App() {
   )
 }
 
-function Tile({ label, value, sub }: { label: string; value: number; sub?: string }) {
+function Tile({ label, value, sub, onClick }: { label: string; value: number; sub?: string; onClick?: () => void }) {
+  const Tag = onClick ? 'button' : 'div'
   return (
-    <div className="tile">
+    <Tag className={onClick ? 'tile tile-button' : 'tile'} onClick={onClick} title={onClick ? `Show these in the applications list` : undefined}>
       <div className="tile-label">{label}</div>
       <div className="tile-value">{value}</div>
       {sub && <div className="tile-sub">{sub}</div>}
-    </div>
+    </Tag>
   )
 }
 
@@ -454,71 +471,91 @@ function ApplicationsTable({
   apps,
   filters,
   onEdit,
+  group,
+  onGroup,
 }: {
   apps: Application[]
   filters: Filters
   onEdit: (key: string, status: Status | undefined) => void
+  group: StatusGroup
+  onGroup: (g: StatusGroup) => void
 }) {
-  const items = apps.filter((a) => matches(a, a.emails.map((e) => e.body).join('\n'), filters))
+  const matching = apps.filter((a) => matches(a, a.emails.map((e) => e.body).join('\n'), filters))
+  const items = matching.filter((a) => inGroup(a, group))
   return (
-    <SortableTable
-      items={items}
-      initial={{ key: 'updated', dir: 'desc' }}
-      empty="No applications match these filters."
-      columns={[
-        { key: 'company', label: 'Company', get: (a) => a.company },
-        { key: 'title', label: 'Job title', get: (a) => a.title },
-        { key: 'location', label: 'Location', get: (a) => a.location },
-        { key: 'pay', label: 'Pay', get: (a) => a.pay?.maxAnnual, render: (a) => formatPay(a.pay) },
-        {
-          key: 'status',
-          label: 'Status',
-          get: (a) => a.status,
-          render: (a) => (
-            <select
-              className={`pill status-select ${a.status}`}
-              value={a.status}
-              aria-label={`Status for ${a.company}`}
-              title={a.edited ? `Set by you. Emails say: ${STATUS_LABELS[a.emailStatus]}` : 'From your emails'}
-              onClick={(e) => e.stopPropagation()}
-              onChange={(e) => {
-                const s = e.target.value as Status
-                onEdit(a.key, s === a.emailStatus ? undefined : s)
-              }}
-            >
-              {Object.entries(STATUS_LABELS).map(([k, v]) => (
-                <option key={k} value={k}>
-                  {v}
-                  {a.edited && k === a.emailStatus ? ' (from emails)' : ''}
-                </option>
-              ))}
-            </select>
-          ),
-        },
-        { key: 'applied', label: 'Applied', get: (a) => a.appliedOn, render: (a) => fmtDate(a.appliedOn) },
-        { key: 'updated', label: 'Last update', get: (a) => a.lastUpdate, render: (a) => fmtDate(a.lastUpdate) },
-      ]}
-      detail={(a) => (
-        <>
-        {a.scamSigns.length > 0 && (
-          <p className="scam-note">
-            ⚠ Possible scam: {a.scamSigns.join('; ')}. Never send money, buy equipment, or deposit a check for a job.
-          </p>
+    <>
+      <div className="filters">
+        <label className="narrow">
+          Show
+          <select value={group} onChange={(e) => onGroup(e.target.value as StatusGroup)}>
+            {(Object.keys(STATUS_GROUPS) as StatusGroup[]).map((g) => (
+              <option key={g} value={g}>
+                {STATUS_GROUPS[g].label} ({matching.filter((a) => inGroup(a, g)).length})
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className="muted hint">The counts at the top use these same groups. Changing a status updates both.</p>
+      </div>
+      <SortableTable
+        items={items}
+        initial={{ key: 'updated', dir: 'desc' }}
+        empty="No applications match these filters."
+        columns={[
+          { key: 'company', label: 'Company', get: (a) => a.company },
+          { key: 'title', label: 'Job title', get: (a) => a.title },
+          { key: 'location', label: 'Location', get: (a) => a.location },
+          { key: 'pay', label: 'Pay', get: (a) => a.pay?.maxAnnual, render: (a) => formatPay(a.pay) },
+          {
+            key: 'status',
+            label: 'Status',
+            get: (a) => a.status,
+            render: (a) => (
+              <select
+                className={`pill status-select ${a.status}`}
+                value={a.status}
+                aria-label={`Status for ${a.company}`}
+                title={a.edited ? `Set by you. Emails say: ${STATUS_LABELS[a.emailStatus]}` : 'From your emails'}
+                onClick={(e) => e.stopPropagation()}
+                onChange={(e) => {
+                  const s = e.target.value as Status
+                  onEdit(a.key, s === a.emailStatus ? undefined : s)
+                }}
+              >
+                {Object.entries(STATUS_LABELS).map(([k, v]) => (
+                  <option key={k} value={k}>
+                    {v}
+                    {a.edited && k === a.emailStatus ? ' (from emails)' : ''}
+                  </option>
+                ))}
+              </select>
+            ),
+          },
+          { key: 'applied', label: 'Applied', get: (a) => a.appliedOn, render: (a) => fmtDate(a.appliedOn) },
+          { key: 'updated', label: 'Last update', get: (a) => a.lastUpdate, render: (a) => fmtDate(a.lastUpdate) },
+        ]}
+        detail={(a) => (
+          <>
+          {a.scamSigns.length > 0 && (
+            <p className="scam-note">
+              ⚠ Possible scam: {a.scamSigns.join('; ')}. Never send money, buy equipment, or deposit a check for a job.
+            </p>
+          )}
+          <ul className="thread">
+            {a.emails.map((e) => (
+              <li key={e.id}>
+                <span className="muted">{fmtDate(e.date)}</span> <strong>{CATEGORY_LABELS[e.category]}</strong>{' '}
+                <a href={gmailLink(e)} target="_blank" rel="noreferrer">
+                  {e.subject}
+                </a>
+                <div className="muted snippet">{e.snippet}</div>
+              </li>
+            ))}
+          </ul>
+          </>
         )}
-        <ul className="thread">
-          {a.emails.map((e) => (
-            <li key={e.id}>
-              <span className="muted">{fmtDate(e.date)}</span> <strong>{CATEGORY_LABELS[e.category]}</strong>{' '}
-              <a href={gmailLink(e)} target="_blank" rel="noreferrer">
-                {e.subject}
-              </a>
-              <div className="muted snippet">{e.snippet}</div>
-            </li>
-          ))}
-        </ul>
-        </>
-      )}
-    />
+      />
+    </>
   )
 }
 
@@ -636,7 +673,7 @@ function ProfileCard({ profile, onSave }: { profile: Profile; onSave: (p: Profil
   )
 }
 
-type LeadView = 'recommended' | 'new' | LeadStatus | 'all'
+type LeadView = 'recommended' | 'new' | LeadStatus | 'expired' | 'all'
 
 function LeadsTable({
   leads,
@@ -657,6 +694,8 @@ function LeadsTable({
   const matching = leads.filter((l) => matches(l, l.description ?? l.email.body, filters))
   const inView = (l: Lead, v: LeadView) => {
     const status = statuses.get(l.key)?.status ?? 'new'
+    // Expired only hides leads you haven't acted on; applied and dismissed stay in their lists.
+    if (status === 'new' && isExpired(l)) return v === 'expired' || v === 'all'
     if (v === 'recommended') return status === 'new' && scored && isRecommended(scores.get(l.key)!)
     return v === 'all' || status === v
   }
@@ -678,10 +717,14 @@ function LeadsTable({
             <option value="new">New ({count('new')})</option>
             <option value="applied">Applied ({count('applied')})</option>
             <option value="dismissed">Dismissed ({count('dismissed')})</option>
+            <option value="expired">Likely expired ({count('expired')})</option>
             <option value="all">All ({count('all')})</option>
           </select>
         </label>
-        <p className="muted hint">Apply opens the posting and marks the job as applied.</p>
+        <p className="muted hint">
+          Apply opens the posting and marks the job as applied. Jobs no alert has listed in {LEAD_EXPIRY_DAYS} days count as
+          likely expired.
+        </p>
       </div>
       <SortableTable
         key={scored ? 'scored' : 'plain'}

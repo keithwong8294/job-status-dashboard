@@ -497,3 +497,12 @@ footer {
     font-size: 12px;
   }
 }
+
+button.tile-button {
+  font-weight: inherit;
+  text-align: left;
+  color: var(--text);
+}
+button.tile-button:hover {
+  background: var(--hover);
+}
