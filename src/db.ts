@@ -72,6 +72,12 @@ export async function setMeta(key: string, value: unknown) {
   await (await db).put('meta', value, key)
 }
 
+/** Drops downloaded emails but keeps your edits (relabels, statuses, profile). */
+export async function clearEmails() {
+  const d = await db
+  await Promise.all([d.clear('emails'), d.delete('meta', 'lastSync')])
+}
+
 export async function clearAll() {
   const d = await db
   await Promise.all([d.clear('emails'), d.clear('overrides'), d.clear('meta'), d.clear('leadStatus'), d.clear('appStatus')])

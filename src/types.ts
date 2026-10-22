@@ -38,6 +38,8 @@ export interface RawEmail {
   subject: string
   snippet: string
   body: string
+  /** Gmail labels such as CATEGORY_PROMOTIONS or SENT. Missing on emails saved before labels were kept. */
+  labels?: string[]
 }
 
 export interface EmailRecord extends RawEmail {
@@ -47,6 +49,8 @@ export interface EmailRecord extends RawEmail {
   source: Source
   /** The company/title an application, response or rejection is about. */
   job: Job
+  /** Red flags for a fake job (empty for most mail). */
+  scamSigns: string[]
   /** Listings found inside a job-board alert email (one email can hold many). */
   leads: Job[]
 }

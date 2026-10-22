@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
 import { classify, toRecord } from './classify'
+import { buildApplications } from './model'
 import { chooseBody } from './gmail'
 import type { RawEmail } from './types'
 
@@ -112,5 +113,59 @@ Indeed Tower 200 West 6th Street, Floor 36, Austin, TX 78701`
     const r = toRecord(mail('indeedapply@indeed.com', 'Indeed Application: Help Desk Analyst', "We'll help you get started", chooseBody(plain, html)))
     expect(r.category).toBe('application')
     expect(r.job).toMatchObject({ title: 'Help Desk Analyst', company: 'Helpful Org', location: 'New York NY US' })
+  })
+})
+
+describe('noise, threads and scams', () => {
+  const at = (from: string, subject: string, snippet: string, extra: Partial<RawEmail> = {}) => ({ ...mail(from, subject, snippet), ...extra })
+
+  it('ignores bank and store marketing that sounds like hiring', () => {
+    expect(classify(at('email@e.bank.com', 'Take the next step with an exclusive loan offer', "You're pre-screened to apply"))).toBe('other')
+    expect(classify(at('deals@shop.com', 'Next steps for your order', '', { labels: ['CATEGORY_PROMOTIONS', 'INBOX'] }))).toBe('other')
+    expect(classify(at('me@gmail.com', 'Re: Interview: Help Desk', 'Yes, I am interested', { labels: ['SENT'] }))).toBe('other')
+  })
+
+  it('counts a whole email thread as one application', () => {
+    const t = (subject: string, snippet: string, day: number) =>
+      toRecord({ ...at('hr@acme.com', subject, snippet), id: subject + day, threadId: 'thread-1', date: Date.UTC(2026, 8, day) })
+    const apps = buildApplications([
+      t('Thank you for applying to Acme', 'We received your application for the Analyst position.', 1),
+      t('Re: Thank you for applying to Acme', 'Thank you for your interest. We have received your application.', 2),
+      t('Re: Interview with Acme', "We'd like to schedule a phone screen.", 5),
+    ])
+    expect(apps).toHaveLength(1)
+    expect(apps[0].status).toBe('responded')
+  })
+
+  it('merges back-to-back confirmations from one sender', () => {
+    const t = (subject: string, snippet: string, minute: number) =>
+      toRecord({ ...at('shm@myworkday.com', subject, snippet), id: subject, threadId: subject, date: Date.UTC(2026, 9, 19, 22, minute) })
+    const apps = buildApplications([
+      t('Action Needed! Thank you for applying with us.', 'Thank you for applying with us. Create a home account.', 50),
+      t('Thank you for applying!', 'Thank you for your interest in the Office Supervisor position.', 51),
+    ])
+    expect(apps).toHaveLength(1)
+  })
+
+  it('flags a fake-check job scam', () => {
+    const t = (subject: string, snippet: string, day: number) =>
+      toRecord({
+        ...at('ro.nichols@career-gymbrand.com', subject, snippet),
+        id: subject + day,
+        threadId: 't',
+        date: Date.UTC(2026, 8, day),
+      })
+    const apps = buildApplications([
+      t('Interview: IT Help Desk Associate', 'Dear Applicant. Your resume has been shortlisted. The interview is a written interview on Teams chat.', 8),
+      t('Re: Interview: IT Help Desk Associate', 'We are delighted to extend to you the offer. We will mail you a company check to purchase your equipment from our approved vendor.', 22),
+    ])
+    expect(apps).toHaveLength(1)
+    expect(apps[0].status).toBe('scam')
+    expect(apps[0].scamSigns).toEqual(expect.arrayContaining(['lookalike sender domain (career-gymbrand.com)', 'offers to send you a check']))
+  })
+
+  it('does not flag an ordinary interview', () => {
+    const r = toRecord(at('recruiting@acme.com', 'Interview for Data Analyst', "We'd like to schedule a video interview on Zoom."))
+    expect(r.scamSigns).toEqual([])
   })
 })

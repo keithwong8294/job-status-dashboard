@@ -21,6 +21,7 @@ import {
   type Status,
 } from './model'
 import { DEFAULT_PROFILE, hasProfile, isRecommended, resumeSkills, scoreLead, type Match, type Profile } from './recommend'
+import { pdfText } from './pdf'
 import { syncGmail } from './sync'
 import { CATEGORY_LABELS, type Category, type EmailRecord, type RawEmail } from './types'
 
@@ -180,7 +181,11 @@ export default function App() {
     for (const r of records) c[r.category]++
     return c
   }, [records])
-  const responded = applications.filter((a) => a.emails.some((e) => e.category !== 'application')).length
+  const real = applications.filter((a) => a.status !== 'scam')
+  const scams = applications.length - real.length
+  const responded = real.filter((a) => a.emails.some((e) => e.category === 'response') || ['responded', 'interviewing', 'offer'].includes(a.status)).length
+  const heardBack = real.filter((a) => a.emails.some((e) => e.category !== 'application') || a.status !== 'applied').length
+  const rejected = real.filter((a) => a.status === 'rejected').length
   const chart = useMemo(() => weekly(records, START_DATE), [records])
 
   const hasData = records.length > 0
@@ -229,13 +234,13 @@ export default function App() {
       {hasData && (
         <>
           <section className="tiles">
-            <Tile label="Applications" value={applications.length} sub={`${counts.application} confirmation emails`} />
+            <Tile label="Applications" value={real.length} sub={scams ? `not counting ${scams} flagged as scams` : `${counts.application} confirmation emails`} />
             <Tile
               label="Responses"
-              value={counts.response}
-              sub={applications.length ? `${Math.round((responded / applications.length) * 100)}% of applications heard back` : ''}
+              value={responded}
+              sub={real.length ? `${Math.round((heardBack / real.length) * 100)}% of applications heard back` : ''}
             />
-            <Tile label="Rejections" value={counts.rejection} />
+            <Tile label="Rejections" value={rejected} />
             <Tile label="Job leads" value={leads.length} sub={`from ${counts.lead} LinkedIn, Indeed and Glassdoor emails`} />
           </section>
 
@@ -494,6 +499,12 @@ function ApplicationsTable({
         { key: 'updated', label: 'Last update', get: (a) => a.lastUpdate, render: (a) => fmtDate(a.lastUpdate) },
       ]}
       detail={(a) => (
+        <>
+        {a.scamSigns.length > 0 && (
+          <p className="scam-note">
+            ⚠ Possible scam: {a.scamSigns.join('; ')}. Never send money, buy equipment, or deposit a check for a job.
+          </p>
+        )}
         <ul className="thread">
           {a.emails.map((e) => (
             <li key={e.id}>
@@ -505,6 +516,7 @@ function ApplicationsTable({
             </li>
           ))}
         </ul>
+        </>
       )}
     />
   )
@@ -529,6 +541,7 @@ function MatchCell({ match }: { match: Match }) {
 function ProfileCard({ profile, onSave }: { profile: Profile; onSave: (p: Profile) => void }) {
   const [open, setOpen] = useState(!hasProfile(profile))
   const [draft, setDraft] = useState(profile)
+  const [reading, setReading] = useState('')
   useEffect(() => setDraft(profile), [profile])
   const skills = resumeSkills(draft.resume)
   if (!open) {
@@ -554,8 +567,32 @@ function ProfileCard({ profile, onSave }: { profile: Profile; onSave: (p: Profil
       <p className="muted">
         Recommendations compare each lead with your resume. This stays in your browser and is never uploaded.
       </p>
+      <div className="resume-upload">
+        <label className="button ghost">
+          Upload resume (PDF or .txt)
+          <input
+            type="file"
+            accept="application/pdf,.pdf,.txt,text/plain"
+            onChange={async (e) => {
+              const file = e.target.files?.[0]
+              e.target.value = ''
+              if (!file) return
+              setReading(`Reading ${file.name}…`)
+              try {
+                const text = file.name.toLowerCase().endsWith('.pdf') ? await pdfText(file) : await file.text()
+                if (!text.trim()) throw new Error('no text found (is it a scanned image?)')
+                setDraft((d) => ({ ...d, resume: text }))
+                setReading(`Read ${file.name}.`)
+              } catch (err) {
+                setReading(`Couldn't read ${file.name}: ${err instanceof Error ? err.message : err}`)
+              }
+            }}
+          />
+        </label>
+        {reading && <span className="muted">{reading}</span>}
+      </div>
       <label>
-        Resume (paste the text)
+        Resume text (filled in from the upload, or paste it)
         <textarea rows={5} value={draft.resume} onChange={(e) => setDraft({ ...draft, resume: e.target.value })} />
       </label>
       {skills.length > 0 && <p className="muted hint">Skills found: {skills.join(', ')}</p>}
