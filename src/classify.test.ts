@@ -123,7 +123,7 @@ describe('sample data', () => {
 
 describe('buildApplications', () => {
   const rec = (subject: string, body: string, day: number) =>
-    toRecord(mail({ id: subject + day, subject, body, date: Date.UTC(2026, 5, day) }))
+    toRecord(mail({ id: subject + day, threadId: subject + day, subject, body, date: Date.UTC(2026, 5, day) }))
 
   it('keeps two roles at one company apart and matches the reply to the newest', () => {
     const apps = buildApplications([

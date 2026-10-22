@@ -191,6 +191,7 @@ interface Message {
   threadId: string
   internalDate: string
   snippet: string
+  labelIds?: string[]
   payload: Part
 }
 
@@ -241,12 +242,14 @@ function toRaw(m: Message): RawEmail {
     subject: h('subject'),
     snippet: m.snippet,
     body: body.slice(0, 20000),
+    labels: m.labelIds,
   }
 }
 
 /** Lists ids of job-related messages received after `after` (epoch ms). */
 export async function listIds(after: number): Promise<string[]> {
-  const q = encodeURIComponent(`after:${Math.floor(after / 1000)} {${JOB_QUERY}}`)
+  // Skip your own replies; they'd otherwise count as extra emails in a thread.
+  const q = encodeURIComponent(`after:${Math.floor(after / 1000)} -from:me {${JOB_QUERY}}`)
   const ids: string[] = []
   let page: string | undefined
   do {

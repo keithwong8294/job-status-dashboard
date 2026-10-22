@@ -88,10 +88,20 @@ const BOARD_NOISE = [
 /** Account and password mail from hiring sites, which often also says "thanks for your interest". */
 const DIRECT_NOISE = [/new account|create (?:a |your )?(?:password|account)|verify your email|reset your password/i]
 
+
 const anyMatch = (patterns: RegExp[], text: string) => patterns.some((p) => p.test(text))
+
+/** Banks, lenders and stores borrow hiring words ("take the next step", "you're pre-selected"). */
+const MARKETING = [
+  /\bloans?\b|pre-?(?:screened|selected|approved|qualified)|credit (?:card|score|limit)|\bAPR\b|mortgage|refinanc|direct deposit|cash back|savings account|checking account|\d+% off|free shipping|sale ends|promo code|coupon|subscribe|newsletter|webinar/i,
+]
 
 export function classify(raw: RawEmail): Category {
   const source = sourceOf(raw.fromDomain)
+  if (raw.labels?.includes('SENT')) return 'other'
+  // Gmail's Promotions tab is marketing, except job-board alerts often land there too.
+  if (source === 'direct' && raw.labels?.includes('CATEGORY_PROMOTIONS')) return 'other'
+  if (source === 'direct' && anyMatch(MARKETING, `${raw.subject}\n${raw.snippet}`)) return 'other'
   const head = `${raw.subject}\n${raw.snippet}`
   const text = `${head}\n${raw.body.slice(0, 4000)}`
 
@@ -110,6 +120,34 @@ export function classify(raw: RawEmail): Category {
   if (anyMatch(RESPONSE, head)) return 'response'
   if (anyMatch(APPLICATION, text)) return 'application'
   return 'other'
+}
+
+// ---------- scams ----------
+
+/**
+ * Signs of a fake job. Fake-check scams in particular copy a real brand
+ * ("career-anytimefitness.com"), interview over chat, and offer to mail a check
+ * for "equipment".
+ */
+const SCAM_TEXT: [RegExp, string][] = [
+  [/(?:send|mail|issue|deposit)\w* (?:you )?(?:a |the )?(?:company |cashier'?s? )?check|check (?:to|for) (?:purchase|buy)|mobile deposit/i, 'offers to send you a check'],
+  [/(?:purchase|buy) (?:your |the )?(?:equipment|laptop|software|supplies)|(?:approved|preferred) vendor/i, 'asks you to buy equipment'],
+  [/\b(?:telegram|signal|whatsapp|google hangouts|wire app|teams chat)\b|written interview|chat interview|text interview|interview (?:via|over|through) (?:chat|text|teams chat)/i, 'chat-only interview'],
+  [/gift cards?|bitcoin|crypto(?:currency)? (?:payment|wallet)|zelle|cash ?app/i, 'asks about payments'],
+  [/social security|\bssn\b|bank (?:account|details|information)|routing number|driver'?s license (?:number|photo)/i, 'asks for personal or bank details'],
+]
+
+/** "career-anytimefitness.com", "job-acme.com": a brand name with a hiring prefix. */
+const LOOKALIKE_DOMAIN = /^(?:career|careers|job|jobs|hr|recruit|recruiting|recruitment|hiring|talent|apply|work)[-.]?[a-z]+(?:-[a-z]+)*\.(?:com|net|org|co|us)$/i
+const FREE_MAIL = /^(?:gmail|outlook|hotmail|yahoo|aol|icloud|proton(?:mail)?)\./i
+
+export function scamSigns(raw: RawEmail): string[] {
+  const signs: string[] = []
+  const text = `${raw.subject}\n${raw.snippet}\n${raw.body.slice(0, 6000)}`
+  for (const [re, why] of SCAM_TEXT) if (re.test(text)) signs.push(why)
+  if (LOOKALIKE_DOMAIN.test(raw.fromDomain)) signs.push(`lookalike sender domain (${raw.fromDomain})`)
+  if (FREE_MAIL.test(raw.fromDomain) && /interview|offer|position|role/i.test(raw.subject)) signs.push('recruiter using a personal email')
+  return signs
 }
 
 // ---------- pay ----------
@@ -372,6 +410,7 @@ export function toRecord(raw: RawEmail, override?: Category): EmailRecord {
     category,
     overridden: override !== undefined,
     job: category === 'lead' || category === 'other' ? {} : extractJob(raw, source),
+    scamSigns: category === 'response' || category === 'application' ? scamSigns(raw) : [],
     leads: category === 'lead' ? extractLeads(raw) : [],
   }
 }

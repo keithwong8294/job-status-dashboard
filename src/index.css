@@ -318,6 +318,19 @@ td select.overridden {
   background: var(--good-bg);
   color: var(--good);
 }
+.pill.scam {
+  background: var(--bad-bg);
+  color: var(--bad);
+  font-weight: 700;
+}
+.scam-note {
+  background: var(--bad-bg);
+  color: var(--bad);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin: 0 0 8px;
+  font-size: 13px;
+}
 .pill.withdrawn {
   background: var(--hover);
   color: var(--muted);
@@ -378,6 +391,33 @@ select.status-select {
   align-items: center;
   flex: 0 0 auto;
   padding-bottom: 8px;
+}
+.resume-upload {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+label.button {
+  display: inline-block;
+  cursor: pointer;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-weight: 600;
+  font-size: 15px;
+}
+label.button.ghost {
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+label.button:focus-within {
+  outline: 2px solid var(--accent);
+}
+label.button input[type='file'] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
 }
 .profile-line {
   margin: 0 0 12px;

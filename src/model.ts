@@ -1,7 +1,7 @@
 import type { Category, EmailRecord, Job, Pay, Source } from './types'
 
 /** The first three come from emails; the rest you can only set by hand. */
-export type Status = 'applied' | 'responded' | 'interviewing' | 'offer' | 'rejected' | 'withdrawn'
+export type Status = 'applied' | 'responded' | 'interviewing' | 'offer' | 'rejected' | 'withdrawn' | 'scam'
 
 export const STATUS_LABELS: Record<Status, string> = {
   applied: 'Applied',
@@ -10,6 +10,7 @@ export const STATUS_LABELS: Record<Status, string> = {
   offer: 'Offer',
   rejected: 'Rejected',
   withdrawn: 'Withdrawn',
+  scam: 'Scam',
 }
 
 /** One company you applied to, with every email about it. */
@@ -23,6 +24,8 @@ export interface Application {
   /** What the emails say, before any status you set by hand. */
   emailStatus: Status
   edited: boolean
+  /** Why this looks like a fake job, if it does. */
+  scamSigns: string[]
   appliedOn?: number
   lastUpdate: number
   emails: EmailRecord[]
@@ -52,34 +55,50 @@ const normalize = (company: string) =>
  * rejection that doesn't name the job is matched to the newest application
  * at that company.
  */
+/**
+ * Groups emails into applications. Emails in the same Gmail thread always stay
+ * together. Otherwise they group by company and job title; a response or
+ * rejection that doesn't name the job goes to the newest application at that
+ * company, and back-to-back confirmations from one sender count once.
+ */
 export function buildApplications(records: EmailRecord[]): Application[] {
   const groups = new Map<string, Application>()
+  const byThread = new Map<string, Application>()
   const latestAt = new Map<string, Application>()
+  const lastFrom = new Map<string, { app: Application; date: number }>()
   const sorted = records.filter((r) => STATUS_OF[r.category]).sort((a, b) => a.date - b.date)
   for (const r of sorted) {
     const company = r.job.company ?? r.fromName ?? r.fromDomain
     const companyKey = normalize(company) || r.fromDomain
     const title = r.job.title
+    const recent = lastFrom.get(r.from)
     let app =
-      title !== undefined
-        ? groups.get(`${companyKey}|${normalize(title)}`)
-        : latestAt.get(companyKey)
+      byThread.get(r.threadId) ??
+      (title !== undefined ? groups.get(`${companyKey}|${normalize(title)}`) : latestAt.get(companyKey)) ??
+      (recent && r.date - recent.date < 2 * 3600e3 && (!title || !recent.app.title || title === recent.app.title)
+        ? recent.app
+        : undefined)
     // A new confirmation for a job we already closed out is a re-application.
-    if (!app || (r.category === 'application' && app.status !== 'applied' && title === undefined)) {
+    if (!app || (r.category === 'application' && app.status !== 'applied' && title === undefined && !byThread.has(r.threadId))) {
       const key = `${companyKey}|${title ? normalize(title) : r.id}`
-      app = { key, company, status: 'applied', emailStatus: 'applied', edited: false, lastUpdate: r.date, emails: [] }
+      app = { key, company, status: 'applied', emailStatus: 'applied', edited: false, scamSigns: [], lastUpdate: r.date, emails: [] }
       groups.set(key, app)
     }
+    byThread.set(r.threadId, app)
     latestAt.set(companyKey, app)
+    lastFrom.set(r.from, { app, date: r.date })
     app.emails.push(r)
     app.title ??= title
     app.location ??= r.job.location
     app.pay ??= r.job.pay
+    for (const s of r.scamSigns) if (!app.scamSigns.includes(s)) app.scamSigns.push(s)
     if (r.category === 'application') app.appliedOn ??= r.date
     // Emails are in date order, so the newest one decides the status.
     app.status = app.emailStatus = STATUS_OF[r.category]!
     app.lastUpdate = r.date
   }
+  // Two red flags is enough to call it; one alone (say, a chat interview) is common in real jobs.
+  for (const app of groups.values()) if (app.scamSigns.length >= 2) app.status = app.emailStatus = 'scam'
   return [...groups.values()]
 }
 
