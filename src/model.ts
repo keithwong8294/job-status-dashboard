@@ -13,6 +13,20 @@ export const STATUS_LABELS: Record<Status, string> = {
   scam: 'Scam',
 }
 
+/** How the tiles, chart and list group statuses, so all three always agree. */
+export type StatusGroup = 'all' | 'waiting' | 'responses' | 'rejected' | 'closed' | 'scam'
+
+export const STATUS_GROUPS: Record<StatusGroup, { label: string; statuses: Status[] }> = {
+  all: { label: 'All except scams', statuses: ['applied', 'responded', 'interviewing', 'offer', 'rejected', 'withdrawn'] },
+  waiting: { label: 'Waiting to hear back', statuses: ['applied'] },
+  responses: { label: 'Responses', statuses: ['responded', 'interviewing', 'offer'] },
+  rejected: { label: 'Rejected', statuses: ['rejected'] },
+  closed: { label: 'Withdrawn', statuses: ['withdrawn'] },
+  scam: { label: 'Scams', statuses: ['scam'] },
+}
+
+export const inGroup = (a: Application, g: StatusGroup) => STATUS_GROUPS[g].statuses.includes(a.status)
+
 /** One company you applied to, with every email about it. */
 export interface Application {
   key: string
@@ -129,6 +143,11 @@ export function buildLeads(records: EmailRecord[]): Lead[] {
   return [...byKey.values()]
 }
 
+/** Most postings close within a month, so a job no alert has listed since then is likely gone. */
+export const LEAD_EXPIRY_DAYS = 30
+
+export const isExpired = (lead: Lead, now = Date.now()) => now - lead.date > LEAD_EXPIRY_DAYS * 864e5
+
 export interface Filters {
   title: string
   location: string
@@ -176,8 +195,12 @@ export function sortBy<T>(items: T[], get: (t: T) => string | number | undefined
   })
 }
 
-/** Counts per week (Monday start) for the chart. */
-export function weekly(records: EmailRecord[], start: Date, now = Date.now()) {
+/**
+ * Applications per week (Monday start) for the chart, counted the same way as
+ * the tiles: each application once when sent, then once more in the week its
+ * current status (response or rejection) arrived.
+ */
+export function weekly(apps: Application[], start: Date, now = Date.now()) {
   const monday = new Date(start)
   monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7))
   monday.setHours(0, 0, 0, 0)
@@ -186,10 +209,18 @@ export function weekly(records: EmailRecord[], start: Date, now = Date.now()) {
     const d = new Date(t)
     weeks.push({ week: `${d.getMonth() + 1}/${d.getDate()}`, start: t, application: 0, response: 0, rejection: 0 })
   }
-  for (const r of records) {
-    if (r.category !== 'application' && r.category !== 'response' && r.category !== 'rejection') continue
-    const i = Math.floor((r.date - monday.getTime()) / (7 * 864e5))
-    if (weeks[i]) weeks[i][r.category]++
+  const add = (date: number, kind: 'application' | 'response' | 'rejection') => {
+    const i = Math.floor((date - monday.getTime()) / (7 * 864e5))
+    if (weeks[i]) weeks[i][kind]++
+  }
+  for (const a of apps) {
+    if (a.status === 'scam') continue
+    add(a.appliedOn ?? a.emails[0]?.date ?? a.lastUpdate, 'application')
+    const kind = inGroup(a, 'responses') ? 'response' : a.status === 'rejected' ? 'rejection' : undefined
+    if (!kind) continue
+    const category = kind === 'response' ? 'response' : 'rejection'
+    // The first email of that kind; a status set by hand falls back to the last update.
+    add(a.emails.find((e) => e.category === category)?.date ?? a.lastUpdate, kind)
   }
   return weeks
 }
