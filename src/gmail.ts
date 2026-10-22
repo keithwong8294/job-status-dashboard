@@ -1,3 +1,4 @@
+import { JOB_URL_RE } from './classify'
 import type { RawEmail } from './types'
 
 /** Read-only: the app can never send, delete or change mail. */
@@ -30,6 +31,12 @@ const JOB_QUERY = [
   'from:jazzhr.com',
   'from:recruitee.com',
   'from:workable.com',
+  'from:paylocity.com',
+  'from:dayforce.com',
+  'from:paychex.com',
+  'from:saashr.com',
+  'from:pinpoint.email',
+  'from:hrrecruiting.com',
   'from:handshake.com',
   'from:joinhandshake.com',
   'subject:application',
@@ -171,6 +178,16 @@ export function htmlToText(html: string): string {
   return (doc.body.textContent ?? '').replace(/[ \t ]+/g, ' ').replace(/\n\s*\n+/g, '\n')
 }
 
+/**
+ * LinkedIn and Indeed alerts have a tidy plain-text part with one job per block,
+ * which beats their HTML. Most other mail (Glassdoor, Indeed Apply) keeps the
+ * details only in the HTML.
+ */
+export function chooseBody(plain?: string, html?: string): string {
+  if (plain && (!html || JOB_URL_RE.test(plain))) return plain
+  return html ? htmlToText(html) : ''
+}
+
 function findPart(p: Part, mime: string): string | undefined {
   if (p.mimeType === mime && p.body?.data) return decode(p.body.data)
   for (const c of p.parts ?? []) {
@@ -183,8 +200,7 @@ function toRaw(m: Message): RawEmail {
   const h = (name: string) => m.payload.headers?.find((x) => x.name.toLowerCase() === name)?.value ?? ''
   const from = h('from')
   const addr = from.match(/<([^>]+)>/)?.[1] ?? from
-  const html = findPart(m.payload, 'text/html')
-  const body = html ? htmlToText(html) : findPart(m.payload, 'text/plain') ?? ''
+  const body = chooseBody(findPart(m.payload, 'text/plain'), findPart(m.payload, 'text/html'))
   return {
     id: m.id,
     threadId: m.threadId,
