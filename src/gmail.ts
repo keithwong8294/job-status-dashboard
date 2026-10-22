@@ -132,19 +132,49 @@ function getToken(): string {
   throw new AuthExpired()
 }
 
+/**
+ * Gmail allows 6,000 quota units per user per minute and reading one message
+ * costs 5, so we space requests to stay near 4,000 a minute.
+ */
+const MIN_GAP_MS = 75
+let nextSlot = 0
+async function throttle() {
+  const now = Date.now()
+  const wait = Math.max(0, nextSlot - now)
+  nextSlot = Math.max(now, nextSlot) + MIN_GAP_MS
+  if (wait) await new Promise((r) => setTimeout(r, wait))
+}
+
+/** Called while we pause for Gmail's rate limit, so the page can say so. */
+let onRateLimitWait: ((seconds: number) => void) | undefined
+export function setRateLimitListener(fn?: (seconds: number) => void) {
+  onRateLimitWait = fn
+}
+
 async function api<T>(path: string): Promise<T> {
   for (let attempt = 0; ; attempt++) {
+    await throttle()
     const res = await fetch(`${API}${path}`, { headers: { Authorization: `Bearer ${getToken()}` } })
     if (res.ok) return res.json() as Promise<T>
     if (res.status === 401) {
       token = undefined
       throw new AuthExpired()
     }
-    if ((res.status === 429 || res.status >= 500) && attempt < 4) {
+    const text = await res.text()
+    const rateLimited = res.status === 429 || (res.status === 403 && /rate ?limit|quota/i.test(text))
+    if (rateLimited && attempt < 6) {
+      // The quota resets each minute, so wait most of a minute and push every other request back too.
+      const seconds = Math.min(60, 15 * 2 ** attempt)
+      nextSlot = Math.max(nextSlot, Date.now() + seconds * 1000)
+      onRateLimitWait?.(seconds)
+      await new Promise((r) => setTimeout(r, seconds * 1000))
+      continue
+    }
+    if (res.status >= 500 && attempt < 4) {
       await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt))
       continue
     }
-    throw new Error(`Gmail API ${res.status}: ${await res.text()}`)
+    throw new Error(`Gmail API ${res.status}: ${text}`)
   }
 }
 
@@ -229,21 +259,28 @@ export async function listIds(after: number): Promise<string[]> {
   return ids
 }
 
+/**
+ * Downloads messages in batches, handing each batch to `onBatch` so progress is
+ * saved even if a later request fails.
+ */
 export async function fetchMessages(
   ids: string[],
-  onProgress?: (done: number) => void,
-): Promise<RawEmail[]> {
-  const out: RawEmail[] = []
-  const CONCURRENCY = 8
-  let next = 0
-  await Promise.all(
-    Array.from({ length: CONCURRENCY }, async () => {
-      while (next < ids.length) {
-        const id = ids[next++]
-        out.push(toRaw(await api<Message>(`/messages/${id}?format=full`)))
-        onProgress?.(out.length)
-      }
-    }),
-  )
-  return out
+  onBatch: (emails: RawEmail[], done: number) => Promise<void>,
+): Promise<void> {
+  const CONCURRENCY = 4
+  const BATCH = 50
+  for (let start = 0; start < ids.length; start += BATCH) {
+    const slice = ids.slice(start, start + BATCH)
+    const out: RawEmail[] = []
+    let next = 0
+    await Promise.all(
+      Array.from({ length: CONCURRENCY }, async () => {
+        while (next < slice.length) {
+          const id = slice[next++]
+          out.push(toRaw(await api<Message>(`/messages/${id}?format=full`)))
+        }
+      }),
+    )
+    await onBatch(out, start + slice.length)
+  }
 }

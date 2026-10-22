@@ -3,7 +3,7 @@ import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAx
 import { toRecord } from './classify'
 import { clearAll, getMeta, loadAll, setOverride } from './db'
 import { demoEmails } from './demo'
-import { AuthExpired, isSignedIn, signIn, signOut, START_DATE } from './gmail'
+import { AuthExpired, isSignedIn, setRateLimitListener, signIn, signOut, START_DATE } from './gmail'
 import {
   buildApplications,
   buildLeads,
@@ -76,7 +76,8 @@ export default function App() {
     syncing.current = true
     setError('')
     try {
-      await syncGmail(setBusy)
+      setRateLimitListener((sec) => setBusy(`Gmail asked us to slow down. Resuming in ${sec} seconds…`))
+      await syncGmail(setBusy, reload)
       await reload()
     } catch (e) {
       if (e instanceof AuthExpired) {
@@ -84,6 +85,7 @@ export default function App() {
         setError('Your Gmail session timed out (Google limits it to an hour). Click Reconnect to keep live updates going.')
       } else setError(String(e instanceof Error ? e.message : e))
     } finally {
+      setRateLimitListener(undefined)
       syncing.current = false
       setBusy('')
     }

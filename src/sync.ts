@@ -7,7 +7,7 @@ const DAY = 864e5
  * Pulls job mail newer than the last sync. Overlaps by a day because Gmail's
  * `after:` filter works on whole seconds and mail can arrive late.
  */
-export async function syncGmail(onProgress?: (msg: string) => void): Promise<number> {
+export async function syncGmail(onProgress?: (msg: string) => void, onSaved?: () => Promise<void>): Promise<number> {
   const last = (await getMeta<number>('lastSync')) ?? START_DATE.getTime() + DAY
   const startedAt = Date.now()
   onProgress?.('Checking Gmail…')
@@ -15,8 +15,12 @@ export async function syncGmail(onProgress?: (msg: string) => void): Promise<num
   const known = new Set((await loadAll()).emails.map((e) => e.id))
   const fresh = ids.filter((id) => !known.has(id))
   if (fresh.length) {
-    const emails = await fetchMessages(fresh, (n) => onProgress?.(`Downloading ${n} of ${fresh.length} emails…`))
-    await saveEmails(emails)
+    // Newest first, so recent mail shows up while older mail is still downloading.
+    await fetchMessages(fresh, async (emails, done) => {
+      await saveEmails(emails)
+      onProgress?.(`Downloaded ${done} of ${fresh.length} emails…`)
+      await onSaved?.()
+    })
   }
   await setMeta('lastSync', startedAt)
   return fresh.length
