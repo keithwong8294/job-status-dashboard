@@ -1,0 +1,23 @@
+import { getMeta, loadAll, saveEmails, setMeta } from './db'
+import { fetchMessages, listIds, START_DATE } from './gmail'
+
+const DAY = 864e5
+
+/**
+ * Pulls job mail newer than the last sync. Overlaps by a day because Gmail's
+ * `after:` filter works on whole seconds and mail can arrive late.
+ */
+export async function syncGmail(onProgress?: (msg: string) => void): Promise<number> {
+  const last = (await getMeta<number>('lastSync')) ?? START_DATE.getTime() + DAY
+  const startedAt = Date.now()
+  onProgress?.('Checking Gmail…')
+  const ids = await listIds(Math.max(START_DATE.getTime(), last - DAY))
+  const known = new Set((await loadAll()).emails.map((e) => e.id))
+  const fresh = ids.filter((id) => !known.has(id))
+  if (fresh.length) {
+    const emails = await fetchMessages(fresh, (n) => onProgress?.(`Downloading ${n} of ${fresh.length} emails…`))
+    await saveEmails(emails)
+  }
+  await setMeta('lastSync', startedAt)
+  return fresh.length
+}
