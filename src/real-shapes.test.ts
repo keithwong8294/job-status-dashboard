@@ -169,3 +169,25 @@ describe('noise, threads and scams', () => {
     expect(r.scamSigns).toEqual([])
   })
 })
+
+describe('scam threads from two lookalike senders', () => {
+  it('end up as one scam application', () => {
+    const t = (from: string, name: string, thread: string, day: number, snippet: string) =>
+      toRecord({
+        ...mail(from, 'Interview: IT Help Desk Associate', snippet),
+        fromName: name,
+        id: thread + day,
+        threadId: thread,
+        date: Date.UTC(2026, 8, day),
+      })
+    const intro = 'Dear Applicant. Thank you for your interest in the IT Help Desk Associate Role at Gymbrand. Your resume has been shortlisted.'
+    const written = 'Since this role is 100% remote, this written interview is conducted on Teams chat.'
+    const apps = buildApplications([
+      t('ro.nichols@career-gymbrand.com', 'ro.nichols', 'a', 8, intro),
+      t('ro.nichols@career-gymbrand.com', 'ro.nichols', 'a', 17, written),
+      t('rrnichols@job-gymbrand.com', 'ronald nichols', 'b', 18, intro),
+    ])
+    expect(apps).toHaveLength(1)
+    expect(apps[0]).toMatchObject({ company: 'Gymbrand', title: 'IT Help Desk Associate', status: 'scam' })
+  })
+})
