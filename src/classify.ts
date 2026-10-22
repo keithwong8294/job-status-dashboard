@@ -294,7 +294,7 @@ export function extractLeads(raw: RawEmail): Job[] {
     const lines = chunk
       .split('\n')
       .map(cleanLine)
-      .filter((l) => l && l.length < 150 && !JUNK_LINE.test(l))
+      .filter((l) => l && l.length < 400 && !JUNK_LINE.test(l))
       .slice(-8)
     if (!lines.length) continue
 
@@ -324,10 +324,11 @@ export function extractLeads(raw: RawEmail): Job[] {
         job.company = glassdoor ? a : a !== undefined ? b : undefined
       }
       for (const l of lines.slice(at + 1)) {
-        job.pay ??= /\$\s?\d/.test(l) ? parsePay(l) : undefined
+        if (/\$\s?\d/.test(l) && l.length < 80) job.pay ??= parsePay(l)
+        else if (l.length >= 60) job.description = job.description ? `${job.description} ${l}` : l
       }
     } else {
-      const [a, b] = lines.slice(-2)
+      const [a, b] = lines.filter((l) => l.length < 120).slice(-2)
       job.title = glassdoor ? b ?? a : a
       job.company = b !== undefined ? (glassdoor ? a : b) : undefined
     }

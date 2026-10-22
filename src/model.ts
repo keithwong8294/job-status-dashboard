@@ -1,6 +1,16 @@
 import type { Category, EmailRecord, Job, Pay, Source } from './types'
 
-export type Status = 'applied' | 'responded' | 'rejected'
+/** The first three come from emails; the rest you can only set by hand. */
+export type Status = 'applied' | 'responded' | 'interviewing' | 'offer' | 'rejected' | 'withdrawn'
+
+export const STATUS_LABELS: Record<Status, string> = {
+  applied: 'Applied',
+  responded: 'Responded',
+  interviewing: 'Interviewing',
+  offer: 'Offer',
+  rejected: 'Rejected',
+  withdrawn: 'Withdrawn',
+}
 
 /** One company you applied to, with every email about it. */
 export interface Application {
@@ -10,6 +20,9 @@ export interface Application {
   location?: string
   pay?: Pay
   status: Status
+  /** What the emails say, before any status you set by hand. */
+  emailStatus: Status
+  edited: boolean
   appliedOn?: number
   lastUpdate: number
   emails: EmailRecord[]
@@ -54,7 +67,7 @@ export function buildApplications(records: EmailRecord[]): Application[] {
     // A new confirmation for a job we already closed out is a re-application.
     if (!app || (r.category === 'application' && app.status !== 'applied' && title === undefined)) {
       const key = `${companyKey}|${title ? normalize(title) : r.id}`
-      app = { key, company, status: 'applied', lastUpdate: r.date, emails: [] }
+      app = { key, company, status: 'applied', emailStatus: 'applied', edited: false, lastUpdate: r.date, emails: [] }
       groups.set(key, app)
     }
     latestAt.set(companyKey, app)
@@ -64,10 +77,17 @@ export function buildApplications(records: EmailRecord[]): Application[] {
     app.pay ??= r.job.pay
     if (r.category === 'application') app.appliedOn ??= r.date
     // Emails are in date order, so the newest one decides the status.
-    app.status = STATUS_OF[r.category]!
+    app.status = app.emailStatus = STATUS_OF[r.category]!
     app.lastUpdate = r.date
   }
   return [...groups.values()]
+}
+
+export function withEditedStatus(apps: Application[], edits: Map<string, Status>): Application[] {
+  return apps.map((a) => {
+    const status = edits.get(a.key)
+    return status ? { ...a, status, edited: true } : a
+  })
 }
 
 export function buildLeads(records: EmailRecord[]): Lead[] {
