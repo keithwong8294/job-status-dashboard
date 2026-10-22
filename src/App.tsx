@@ -190,8 +190,11 @@ export default function App() {
   const groupCount = (g: StatusGroup) => applications.filter((a) => inGroup(a, g)).length
   const total = groupCount('all')
   const scams = groupCount('scam')
-  const responded = groupCount('responses')
+  const action = groupCount('action')
+  const interviews = groupCount('interviews')
   const rejected = groupCount('rejected')
+  const offers = applications.filter((a) => a.status === 'interview_offer').length
+  const afterInterview = applications.filter((a) => a.status === 'interview_rejected').length
   const chart = useMemo(() => weekly(applications, START_DATE), [applications])
   const showGroup = (g: StatusGroup) => {
     setAppGroup(g)
@@ -247,16 +250,17 @@ export default function App() {
             <Tile
               label="Applications"
               value={total}
-              sub={scams ? `not counting ${scams} flagged as scams` : `${groupCount('waiting')} still waiting`}
+              sub={`${groupCount('applied')} with no reply yet${scams ? `, not counting ${scams} scams` : ''}`}
               onClick={() => showGroup('all')}
             />
+            <Tile label="Action needed" value={action} sub="replies waiting on you" onClick={() => showGroup('action')} />
+            <Tile label="Interviews" value={interviews} sub={`${offers} ${offers === 1 ? 'offer' : 'offers'}`} onClick={() => showGroup('interviews')} />
             <Tile
-              label="Responses"
-              value={responded}
-              sub={total ? `${Math.round(((responded + rejected) / total) * 100)}% heard back, counting rejections` : ''}
-              onClick={() => showGroup('responses')}
+              label="Rejections"
+              value={rejected}
+              sub={afterInterview ? `${afterInterview} after an interview` : total ? `${Math.round((rejected / total) * 100)}% of applications` : ''}
+              onClick={() => showGroup('rejected')}
             />
-            <Tile label="Rejections" value={rejected} sub={total ? `${Math.round((rejected / total) * 100)}% of applications` : ''} onClick={() => showGroup('rejected')} />
             <Tile label="Job leads" value={leads.length} sub={`from ${counts.lead} LinkedIn, Indeed and Glassdoor emails`} />
           </section>
 
@@ -495,7 +499,7 @@ function ApplicationsTable({
             ))}
           </select>
         </label>
-        <p className="muted hint">The counts at the top use these same groups. Changing a status updates both.</p>
+        <p className="muted hint">The counts at the top use these same groups. Remove hides an application from every count; find it again under Removed.</p>
       </div>
       <SortableTable
         items={items}
@@ -522,17 +526,35 @@ function ApplicationsTable({
                   onEdit(a.key, s === a.emailStatus ? undefined : s)
                 }}
               >
-                {Object.entries(STATUS_LABELS).map(([k, v]) => (
+                {Object.entries(STATUS_LABELS)
+                  .filter(([k]) => k !== 'removed' || a.status === 'removed')
+                  .map(([k, v]) => (
                   <option key={k} value={k}>
                     {v}
                     {a.edited && k === a.emailStatus ? ' (from emails)' : ''}
                   </option>
-                ))}
+                  ))}
               </select>
             ),
           },
           { key: 'applied', label: 'Applied', get: (a) => a.appliedOn, render: (a) => fmtDate(a.appliedOn) },
           { key: 'updated', label: 'Last update', get: (a) => a.lastUpdate, render: (a) => fmtDate(a.lastUpdate) },
+          {
+            key: 'remove',
+            label: '',
+            get: () => undefined,
+            render: (a) => (
+              <button
+                className="ghost small"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onEdit(a.key, a.status === 'removed' ? undefined : 'removed')
+                }}
+              >
+                {a.status === 'removed' ? 'Restore' : 'Remove'}
+              </button>
+            ),
+          },
         ]}
         detail={(a) => (
           <>

@@ -134,7 +134,7 @@ describe('noise, threads and scams', () => {
       t('Re: Interview with Acme', "We'd like to schedule a phone screen.", 5),
     ])
     expect(apps).toHaveLength(1)
-    expect(apps[0].status).toBe('responded')
+    expect(apps[0].status).toBe('action')
   })
 
   it('merges back-to-back confirmations from one sender', () => {

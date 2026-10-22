@@ -1,28 +1,40 @@
 import type { Category, EmailRecord, Job, Pay, Source } from './types'
 
-/** The first three come from emails; the rest you can only set by hand. */
-export type Status = 'applied' | 'responded' | 'interviewing' | 'offer' | 'rejected' | 'withdrawn' | 'scam'
+/**
+ * Where an application stands. Emails set all but "removed", which only you
+ * can set; you can override any of them by hand.
+ */
+export type Status = 'applied' | 'action' | 'rejected' | 'interview_rejected' | 'interview_offer' | 'scam' | 'removed'
 
 export const STATUS_LABELS: Record<Status, string> = {
   applied: 'Applied',
-  responded: 'Responded',
-  interviewing: 'Interviewing',
-  offer: 'Offer',
+  action: 'Action needed',
   rejected: 'Rejected',
-  withdrawn: 'Withdrawn',
+  interview_rejected: 'Interview + rejection',
+  interview_offer: 'Interview + offer',
   scam: 'Scam',
+  removed: 'Removed',
+}
+
+/** Statuses from before the current list, still saved in some browsers. */
+const LEGACY_STATUS: Record<string, Status> = {
+  responded: 'action',
+  interviewing: 'action',
+  offer: 'interview_offer',
+  withdrawn: 'removed',
 }
 
 /** How the tiles, chart and list group statuses, so all three always agree. */
-export type StatusGroup = 'all' | 'waiting' | 'responses' | 'rejected' | 'closed' | 'scam'
+export type StatusGroup = 'all' | 'applied' | 'action' | 'interviews' | 'rejected' | 'scam' | 'removed'
 
 export const STATUS_GROUPS: Record<StatusGroup, { label: string; statuses: Status[] }> = {
-  all: { label: 'All except scams', statuses: ['applied', 'responded', 'interviewing', 'offer', 'rejected', 'withdrawn'] },
-  waiting: { label: 'Waiting to hear back', statuses: ['applied'] },
-  responses: { label: 'Responses', statuses: ['responded', 'interviewing', 'offer'] },
-  rejected: { label: 'Rejected', statuses: ['rejected'] },
-  closed: { label: 'Withdrawn', statuses: ['withdrawn'] },
+  all: { label: 'All applications', statuses: ['applied', 'action', 'rejected', 'interview_rejected', 'interview_offer'] },
+  applied: { label: 'Applied, no reply yet', statuses: ['applied'] },
+  action: { label: 'Action needed', statuses: ['action'] },
+  interviews: { label: 'Interviewed', statuses: ['interview_rejected', 'interview_offer'] },
+  rejected: { label: 'Rejected', statuses: ['rejected', 'interview_rejected'] },
   scam: { label: 'Scams', statuses: ['scam'] },
+  removed: { label: 'Removed', statuses: ['removed'] },
 }
 
 export const inGroup = (a: Application, g: StatusGroup) => STATUS_GROUPS[g].statuses.includes(a.status)
@@ -57,8 +69,22 @@ export interface Lead extends Job {
 
 const STATUS_OF: Partial<Record<Category, Status>> = {
   application: 'applied',
-  response: 'responded',
+  response: 'action',
   rejection: 'rejected',
+}
+
+const INTERVIEW = /\binterview(?:ed|ing|s)?\b|phone screen|video call|meet with (?:the|our) team/i
+const OFFER = /\b(?:pleased|happy|excited|delighted) to (?:extend|offer)\b|\boffer letter\b|\bjob offer\b|\boffer of employment\b/i
+
+/** The status the emails point to, once they're in date order. */
+function statusFromEmails(emails: EmailRecord[]): Status {
+  const text = (e: EmailRecord) => `${e.subject}\n${e.snippet}\n${e.body}`
+  const responses = emails.filter((e) => e.category === 'response')
+  const interviewed = responses.some((e) => INTERVIEW.test(text(e)))
+  const last = emails.at(-1)!
+  if (last.category === 'rejection') return interviewed ? 'interview_rejected' : 'rejected'
+  if (responses.some((e) => OFFER.test(text(e)))) return 'interview_offer'
+  return STATUS_OF[last.category]!
 }
 
 const normalize = (company: string) =>
@@ -93,7 +119,7 @@ export function buildApplications(records: EmailRecord[]): Application[] {
         ? recent.app
         : undefined)
     // A new confirmation for a job we already closed out is a re-application.
-    if (!app || (r.category === 'application' && app.status !== 'applied' && title === undefined && !byThread.has(r.threadId))) {
+    if (!app || (r.category === 'application' && app.emails.at(-1)!.category !== 'application' && title === undefined && !byThread.has(r.threadId))) {
       const key = `${companyKey}|${title ? normalize(title) : r.id}`
       app = { key, company, status: 'applied', emailStatus: 'applied', edited: false, scamSigns: [], lastUpdate: r.date, emails: [] }
       groups.set(key, app)
@@ -107,18 +133,20 @@ export function buildApplications(records: EmailRecord[]): Application[] {
     app.pay ??= r.job.pay
     for (const s of r.scamSigns) if (!app.scamSigns.includes(s)) app.scamSigns.push(s)
     if (r.category === 'application') app.appliedOn ??= r.date
-    // Emails are in date order, so the newest one decides the status.
-    app.status = app.emailStatus = STATUS_OF[r.category]!
     app.lastUpdate = r.date
   }
-  // Two red flags is enough to call it; one alone (say, a chat interview) is common in real jobs.
-  for (const app of groups.values()) if (app.scamSigns.length >= 2) app.status = app.emailStatus = 'scam'
+  for (const app of groups.values()) {
+    app.status = app.emailStatus = statusFromEmails(app.emails)
+    // Two red flags is enough to call it; one alone (say, a chat interview) is common in real jobs.
+    if (app.scamSigns.length >= 2) app.status = app.emailStatus = 'scam'
+  }
   return [...groups.values()]
 }
 
 export function withEditedStatus(apps: Application[], edits: Map<string, Status>): Application[] {
   return apps.map((a) => {
-    const status = edits.get(a.key)
+    const saved = edits.get(a.key)
+    const status = saved && (LEGACY_STATUS[saved] ?? saved)
     return status ? { ...a, status, edited: true } : a
   })
 }
@@ -197,8 +225,8 @@ export function sortBy<T>(items: T[], get: (t: T) => string | number | undefined
 
 /**
  * Applications per week (Monday start) for the chart, counted the same way as
- * the tiles: each application once when sent, then once more in the week its
- * current status (response or rejection) arrived.
+ * the tiles: each application once when sent, then in the week it got a
+ * reply and the week it was rejected, if it was.
  */
 export function weekly(apps: Application[], start: Date, now = Date.now()) {
   const monday = new Date(start)
@@ -214,13 +242,12 @@ export function weekly(apps: Application[], start: Date, now = Date.now()) {
     if (weeks[i]) weeks[i][kind]++
   }
   for (const a of apps) {
-    if (a.status === 'scam') continue
+    if (!inGroup(a, 'all')) continue
     add(a.appliedOn ?? a.emails[0]?.date ?? a.lastUpdate, 'application')
-    const kind = inGroup(a, 'responses') ? 'response' : a.status === 'rejected' ? 'rejection' : undefined
-    if (!kind) continue
-    const category = kind === 'response' ? 'response' : 'rejection'
-    // The first email of that kind; a status set by hand falls back to the last update.
-    add(a.emails.find((e) => e.category === category)?.date ?? a.lastUpdate, kind)
+    // A reply and a rejection each land in the week of their first email; a status set by hand falls back to the last update.
+    if (a.status !== 'applied' && a.status !== 'rejected')
+      add(a.emails.find((e) => e.category === 'response')?.date ?? a.lastUpdate, 'response')
+    if (inGroup(a, 'rejected')) add(a.emails.find((e) => e.category === 'rejection')?.date ?? a.lastUpdate, 'rejection')
   }
   return weeks
 }

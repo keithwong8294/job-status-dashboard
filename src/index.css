@@ -20,6 +20,8 @@
   --bad-bg: rgba(208, 59, 59, 0.12);
   --info-bg: rgba(42, 120, 214, 0.12);
   --info: #1c5cab;
+  --warn: #8a5300;
+  --warn-bg: rgba(250, 178, 25, 0.18);
   --sans: system-ui, -apple-system, 'Segoe UI', sans-serif;
 }
 
@@ -42,6 +44,7 @@
     --good: #3cc23c;
     --bad: #ef7a7a;
     --info: #86b6ef;
+    --warn: #f5c45c;
   }
 }
 :root[data-theme='dark'] {
@@ -62,6 +65,7 @@
   --good: #3cc23c;
   --bad: #ef7a7a;
   --info: #86b6ef;
+  --warn: #f5c45c;
 }
 
 * {
@@ -182,7 +186,7 @@ a {
 
 .tiles {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 12px;
   margin-bottom: 16px;
 }
@@ -313,10 +317,17 @@ td select.overridden {
   background: var(--good-bg);
   color: var(--good);
 }
-.pill.interviewing,
-.pill.offer {
+.pill.interview_offer {
   background: var(--good-bg);
   color: var(--good);
+}
+.pill.action {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+.pill.interview_rejected {
+  background: var(--bad-bg);
+  color: var(--bad);
 }
 .pill.scam {
   background: var(--bad-bg);
@@ -331,7 +342,7 @@ td select.overridden {
   margin: 0 0 8px;
   font-size: 13px;
 }
-.pill.withdrawn {
+.pill.removed {
   background: var(--hover);
   color: var(--muted);
 }
