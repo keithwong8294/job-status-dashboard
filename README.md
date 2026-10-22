@@ -34,27 +34,27 @@ You need your own Google OAuth client ID. It's free, and it's what lets the page
    App name: anything. Support email: yours. Audience: **External**. Contact email: yours. Finish.
 4. Under **Audience → Test users**, click **Add users** and add your Gmail address.
 5. Under **Clients**, click **Create client**. Type: **Web application**.
-   Under **Authorized JavaScript origins**, add `https://<your-github-username>.github.io`
-   (and `http://localhost:5173` if you'll run it locally). Click **Create**.
+   Under **Authorized JavaScript origins**, add `http://localhost:5173`. Click **Create**.
 6. Copy the **Client ID** (ends in `.apps.googleusercontent.com`) and paste it into the dashboard.
 
 Because the app stays in "Testing" mode, Google shows a "Google hasn't verified this app" screen
 when you connect. That's expected for a personal app: click **Continue**.
 
-To skip pasting the ID on each new browser, add it as a repository variable named
-`GOOGLE_CLIENT_ID` (Settings → Secrets and variables → Actions → Variables). Client IDs are not secret.
+To skip pasting the ID in a new browser, create a file named `.env.local` in this folder containing
+`VITE_GOOGLE_CLIENT_ID=<your client id>`. It's ignored by git.
 
-## Hosting on GitHub Pages
+## Running it
 
-In the repo, go to **Settings → Pages** and set **Source** to **GitHub Actions**. Every push to `main`
-runs the tests, builds, and publishes to `https://<username>.github.io/<repo>/`.
-
-## Development
+You need [Node.js](https://nodejs.org/) 20 or newer.
 
 ```sh
+git clone https://github.com/keithwong8294/job-status-dashboard.git
+cd job-status-dashboard
 npm install
-npm run dev     # http://localhost:5173
-npm test
+npm run dev     # then open http://localhost:5173
 ```
+
+Leave the page open in a tab for live updates. Your saved emails stay in that browser between runs,
+so later visits only download what's new. `npm test` runs the email-sorting tests.
 
 Click **Try with sample data** to see the dashboard without connecting Gmail.
