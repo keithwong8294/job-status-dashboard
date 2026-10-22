@@ -26,6 +26,7 @@ import {
   type Status,
 } from './model'
 import { DEFAULT_PROFILE, hasProfile, isRecommended, resumeFamilies, resumeSkills, scoreLead, type Match, type Profile } from './recommend'
+import { driveFrom, formatDrive, locate } from './distance'
 import { pdfText } from './pdf'
 import { syncGmail } from './sync'
 import { CATEGORY_LABELS, type Category, type EmailRecord, type RawEmail } from './types'
@@ -320,6 +321,11 @@ export default function App() {
 
       <footer className="muted">
         Read-only Gmail access. Emails are stored only in this browser.{' '}
+        Drive times are rough estimates from town locations by{' '}
+        <a href="https://www.geonames.org" target="_blank" rel="noreferrer">
+          GeoNames
+        </a>{' '}
+        (CC BY 4.0).{' '}
         {clientId && !ENV_CLIENT_ID && (
           <button className="link" onClick={() => (writeStored('clientId', undefined), setClientId(''))}>
             Change Google client ID
@@ -607,7 +613,8 @@ function ProfileCard({ profile, onSave }: { profile: Profile; onSave: (p: Profil
     return (
       <p className="muted profile-line">
         Ranking leads against your resume ({resumeFamilies(profile.resume).join(', ') || 'no role types found'}; {resumeSkills(profile.resume).length} skills, {profile.targetTitles.split(/[,\n;]+/).filter((t) => t.trim()).length} target titles,
-        ${Math.round(profile.minPay / 1000)}K+, NY/NJ/CT{profile.includeRemote ? ' or remote' : ''}).{' '}
+        ${Math.round(profile.minPay / 1000)}K+, NY/NJ/CT{profile.includeRemote ? ' or remote' : ''}
+        {profile.home.trim() ? `; drive times from ${profile.home.trim()}` : '; add your home town for drive times'}).{' '}
         <button className="link" onClick={() => setOpen(true)}>
           Edit
         </button>
@@ -678,6 +685,11 @@ function ProfileCard({ profile, onSave }: { profile: Profile; onSave: (p: Profil
             onChange={(e) => setDraft({ ...draft, minPay: Number(e.target.value) || 0 })}
           />
         </label>
+        <label className="narrow">
+          Home town, for drive times
+          <input value={draft.home} onChange={(e) => setDraft({ ...draft, home: e.target.value })} placeholder="e.g. Princeton, NJ" />
+          {draft.home.trim() && !locate(draft.home) && <span className="bad-hint">Town not found. Try "Town, ST".</span>}
+        </label>
         <label className="check">
           <input type="checkbox" checked={draft.includeRemote} onChange={(e) => setDraft({ ...draft, includeRemote: e.target.checked })} />
           Include remote jobs
@@ -710,6 +722,7 @@ function LeadsTable({
   onMark: (key: string, status: LeadStatus | undefined) => void
   profile: Profile
 }) {
+  const home = locate(profile.home)
   const scored = hasProfile(profile)
   const [view, setView] = useState<LeadView>(scored ? 'recommended' : 'new')
   const scores = useMemo(() => new Map(leads.map((l) => [l.key, scoreLead(l, profile)])), [leads, profile])
@@ -778,7 +791,20 @@ function LeadsTable({
               ),
           },
           { key: 'company', label: 'Company', get: (l) => l.company },
-          { key: 'location', label: 'Location', get: (l) => l.location },
+          {
+            key: 'location',
+            label: 'Location',
+            get: (l) => l.location,
+            render: (l) => {
+              const to = home && locate(l.location)
+              return (
+                <>
+                  {l.location}
+                  {to && <div className="muted drive">{formatDrive(driveFrom(home, to))}</div>}
+                </>
+              )
+            },
+          },
           { key: 'pay', label: 'Pay', get: (l) => l.pay?.minAnnual, render: (l) => formatPay(l.pay) },
           { key: 'source', label: 'From', get: (l) => SOURCE_LABELS[l.source] },
           { key: 'date', label: 'Received', get: (l) => l.date, render: (l) => fmtDate(l.date) },
