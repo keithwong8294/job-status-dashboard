@@ -192,10 +192,10 @@ export function scoreLead(job: Job, profile: Profile): Match {
 
   // Pay, already converted to yearly (hourly × 2,080).
   if (!job.pay) score += 8
-  else if (job.pay.maxAnnual >= profile.minPay) {
+  else if (job.pay.minAnnual >= profile.minPay) {
     score += 15
-    reasons.push({ good: true, text: `pays $${Math.round(job.pay.maxAnnual / 1000)}K` })
-  } else reasons.push({ good: false, text: `under $${Math.round(profile.minPay / 1000)}K` })
+    reasons.push({ good: true, text: `pays from $${Math.round(job.pay.minAnnual / 1000)}K` })
+  } else reasons.push({ good: false, text: `${job.pay.maxAnnual >= profile.minPay ? 'starts ' : ''}under $${Math.round(profile.minPay / 1000)}K` })
 
   // Experience level.
   const years = yearsRequired(job.description)
