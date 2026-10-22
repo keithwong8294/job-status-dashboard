@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { toRecord } from './classify'
-import { clearAll, getMeta, loadAll, setLeadStatus, setOverride, type LeadStatus } from './db'
+import { clearAll, getMeta, loadAll, setAppStatus, setLeadStatus, setMeta, setOverride, type LeadStatus } from './db'
 import { demoEmails } from './demo'
 import { AuthExpired, isSignedIn, setRateLimitListener, signIn, signOut, START_DATE } from './gmail'
 import {
@@ -11,12 +11,16 @@ import {
   formatPay,
   matches,
   sortBy,
+  STATUS_LABELS,
   weekly,
+  withEditedStatus,
   type Application,
   type Filters,
   type Lead,
   type SortDir,
+  type Status,
 } from './model'
+import { DEFAULT_PROFILE, hasProfile, isRecommended, resumeSkills, scoreLead, type Match, type Profile } from './recommend'
 import { syncGmail } from './sync'
 import { CATEGORY_LABELS, type Category, type EmailRecord, type RawEmail } from './types'
 
@@ -24,7 +28,6 @@ const POLL_MS = 2 * 60 * 1000
 const ENV_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined
 
 const SOURCE_LABELS = { linkedin: 'LinkedIn', indeed: 'Indeed', glassdoor: 'Glassdoor', direct: 'Employer' }
-const STATUS_LABELS = { applied: 'Applied', responded: 'Responded', rejected: 'Rejected' }
 
 const fmtDate = (t?: number) => (t ? new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '')
 const gmailLink = (e: EmailRecord) => `https://mail.google.com/mail/u/0/#all/${e.threadId}`
@@ -52,6 +55,8 @@ export default function App() {
   const [raws, setRaws] = useState<RawEmail[]>([])
   const [overrides, setOverrides] = useState(new Map<string, Category>())
   const [leadStatus, setLeadStatusState] = useState(new Map<string, { status: LeadStatus; at: number }>())
+  const [appStatus, setAppStatusState] = useState(new Map<string, Status>())
+  const [profile, setProfileState] = useState<Profile>(DEFAULT_PROFILE)
   const [demo, setDemo] = useState(false)
   const [connected, setConnected] = useState(false)
   const [busy, setBusy] = useState('')
@@ -62,7 +67,9 @@ export default function App() {
   const syncing = useRef(false)
 
   const reload = useCallback(async () => {
-    const { emails, overrides, leadStatus } = await loadAll()
+    const { emails, overrides, leadStatus, appStatus } = await loadAll()
+    setAppStatusState(appStatus)
+    setProfileState({ ...DEFAULT_PROFILE, ...(await getMeta<Profile>('profile')) })
     setRaws(emails)
     setOverrides(overrides)
     setLeadStatusState(leadStatus)
@@ -153,7 +160,20 @@ export default function App() {
     if (!demo) await setLeadStatus(key, status, at)
   }
 
-  const applications = useMemo(() => buildApplications(records), [records])
+  async function editAppStatus(key: string, status: Status | undefined) {
+    const next = new Map(appStatus)
+    if (status) next.set(key, status)
+    else next.delete(key)
+    setAppStatusState(next)
+    if (!demo) await setAppStatus(key, status)
+  }
+
+  async function saveProfile(p: Profile) {
+    setProfileState(p)
+    await setMeta('profile', p)
+  }
+
+  const applications = useMemo(() => withEditedStatus(buildApplications(records), appStatus), [records, appStatus])
   const leads = useMemo(() => buildLeads(records), [records])
   const counts = useMemo(() => {
     const c = { application: 0, response: 0, rejection: 0, lead: 0, other: 0 }
@@ -256,8 +276,13 @@ export default function App() {
               ))}
             </nav>
             {tab !== 'emails' && <FilterBar filters={filters} onChange={setFilters} />}
-            {tab === 'applications' && <ApplicationsTable apps={applications} filters={filters} />}
-            {tab === 'leads' && <LeadsTable leads={leads} filters={filters} statuses={leadStatus} onMark={markLead} />}
+            {tab === 'applications' && <ApplicationsTable apps={applications} filters={filters} onEdit={editAppStatus} />}
+            {tab === 'leads' && (
+              <>
+                <ProfileCard profile={profile} onSave={saveProfile} />
+                <LeadsTable key={hasProfile(profile) ? "scored" : "plain"} leads={leads} filters={filters} statuses={leadStatus} onMark={markLead} profile={profile} />
+              </>
+            )}
             {tab === 'emails' && <EmailsTable records={records} onRelabel={relabel} />}
           </section>
         </>
@@ -420,7 +445,15 @@ function Row<T>({ item, columns, open, onToggle, detail }: { item: T; columns: C
   )
 }
 
-function ApplicationsTable({ apps, filters }: { apps: Application[]; filters: Filters }) {
+function ApplicationsTable({
+  apps,
+  filters,
+  onEdit,
+}: {
+  apps: Application[]
+  filters: Filters
+  onEdit: (key: string, status: Status | undefined) => void
+}) {
   const items = apps.filter((a) => matches(a, a.emails.map((e) => e.body).join('\n'), filters))
   return (
     <SortableTable
@@ -436,7 +469,26 @@ function ApplicationsTable({ apps, filters }: { apps: Application[]; filters: Fi
           key: 'status',
           label: 'Status',
           get: (a) => a.status,
-          render: (a) => <span className={`pill ${a.status}`}>{STATUS_LABELS[a.status]}</span>,
+          render: (a) => (
+            <select
+              className={`pill status-select ${a.status}`}
+              value={a.status}
+              aria-label={`Status for ${a.company}`}
+              title={a.edited ? `Set by you. Emails say: ${STATUS_LABELS[a.emailStatus]}` : 'From your emails'}
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) => {
+                const s = e.target.value as Status
+                onEdit(a.key, s === a.emailStatus ? undefined : s)
+              }}
+            >
+              {Object.entries(STATUS_LABELS).map(([k, v]) => (
+                <option key={k} value={k}>
+                  {v}
+                  {a.edited && k === a.emailStatus ? ' (from emails)' : ''}
+                </option>
+              ))}
+            </select>
+          ),
         },
         { key: 'applied', label: 'Applied', get: (a) => a.appliedOn, render: (a) => fmtDate(a.appliedOn) },
         { key: 'updated', label: 'Last update', get: (a) => a.lastUpdate, render: (a) => fmtDate(a.lastUpdate) },
@@ -458,24 +510,116 @@ function ApplicationsTable({ apps, filters }: { apps: Application[]; filters: Fi
   )
 }
 
-type LeadView = 'new' | LeadStatus | 'all'
+function MatchCell({ match }: { match: Match }) {
+  const tone = match.score >= 70 ? 'responded' : match.score >= 50 ? 'applied' : 'muted-pill'
+  return (
+    <div className="match">
+      <span className={`pill ${tone}`}>{match.score}</span>
+      <div className="reasons">
+        {match.reasons.slice(0, 4).map((r) => (
+          <span key={r.text} className={r.good ? 'good' : 'bad'}>
+            {r.good ? '✓' : '✗'} {r.text}
+          </span>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function ProfileCard({ profile, onSave }: { profile: Profile; onSave: (p: Profile) => void }) {
+  const [open, setOpen] = useState(!hasProfile(profile))
+  const [draft, setDraft] = useState(profile)
+  useEffect(() => setDraft(profile), [profile])
+  const skills = resumeSkills(draft.resume)
+  if (!open) {
+    return (
+      <p className="muted profile-line">
+        Ranking leads against your resume ({resumeSkills(profile.resume).length} skills, {profile.targetTitles.split(/[,\n;]+/).filter((t) => t.trim()).length} target titles,
+        ${Math.round(profile.minPay / 1000)}K+, NY/NJ/CT{profile.includeRemote ? ' or remote' : ''}).{' '}
+        <button className="link" onClick={() => setOpen(true)}>
+          Edit
+        </button>
+      </p>
+    )
+  }
+  return (
+    <form
+      className="profile"
+      onSubmit={(e) => {
+        e.preventDefault()
+        onSave(draft)
+        setOpen(false)
+      }}
+    >
+      <p className="muted">
+        Recommendations compare each lead with your resume. This stays in your browser and is never uploaded.
+      </p>
+      <label>
+        Resume (paste the text)
+        <textarea rows={5} value={draft.resume} onChange={(e) => setDraft({ ...draft, resume: e.target.value })} />
+      </label>
+      {skills.length > 0 && <p className="muted hint">Skills found: {skills.join(', ')}</p>}
+      <div className="filters">
+        <label className="wide">
+          Job titles you want (comma separated)
+          <input
+            value={draft.targetTitles}
+            onChange={(e) => setDraft({ ...draft, targetTitles: e.target.value })}
+            placeholder="e.g. IT Support Specialist, Junior Systems Administrator"
+          />
+        </label>
+        <label className="narrow">
+          Minimum pay per year
+          <input
+            type="number"
+            step={5000}
+            value={draft.minPay}
+            onChange={(e) => setDraft({ ...draft, minPay: Number(e.target.value) || 0 })}
+          />
+        </label>
+        <label className="check">
+          <input type="checkbox" checked={draft.includeRemote} onChange={(e) => setDraft({ ...draft, includeRemote: e.target.checked })} />
+          Include remote jobs
+        </label>
+      </div>
+      <div className="actions">
+        <button type="submit">Save</button>
+        {hasProfile(profile) && (
+          <button type="button" className="ghost" onClick={() => setOpen(false)}>
+            Cancel
+          </button>
+        )}
+      </div>
+    </form>
+  )
+}
+
+type LeadView = 'recommended' | 'new' | LeadStatus | 'all'
 
 function LeadsTable({
   leads,
   filters,
   statuses,
   onMark,
+  profile,
 }: {
   leads: Lead[]
   filters: Filters
   statuses: Map<string, { status: LeadStatus; at: number }>
   onMark: (key: string, status: LeadStatus | undefined) => void
+  profile: Profile
 }) {
-  const [view, setView] = useState<LeadView>('new')
-  const matching = leads.filter((l) => matches(l, l.email.body, filters))
-  const count = (v: LeadView) =>
-    matching.filter((l) => v === 'all' || (statuses.get(l.key)?.status ?? 'new') === v).length
-  const items = matching.filter((l) => view === 'all' || (statuses.get(l.key)?.status ?? 'new') === view)
+  const scored = hasProfile(profile)
+  const [view, setView] = useState<LeadView>(scored ? 'recommended' : 'new')
+  const scores = useMemo(() => new Map(leads.map((l) => [l.key, scoreLead(l, profile)])), [leads, profile])
+  const matching = leads.filter((l) => matches(l, l.description ?? l.email.body, filters))
+  const inView = (l: Lead, v: LeadView) => {
+    const status = statuses.get(l.key)?.status ?? 'new'
+    if (v === 'recommended') return status === 'new' && scored && isRecommended(scores.get(l.key)!)
+    return v === 'all' || status === v
+  }
+  const count = (v: LeadView) => matching.filter((l) => inView(l, v)).length
+  const items = matching.filter((l) => inView(l, view)).map((l) => ({ ...l, match: scores.get(l.key)! }))
 
   function apply(l: Lead) {
     if (l.url) window.open(l.url, '_blank', 'noopener')
@@ -488,6 +632,7 @@ function LeadsTable({
         <label className="narrow">
           Show
           <select value={view} onChange={(e) => setView(e.target.value as LeadView)}>
+            {scored && <option value="recommended">Recommended ({count('recommended')})</option>}
             <option value="new">New ({count('new')})</option>
             <option value="applied">Applied ({count('applied')})</option>
             <option value="dismissed">Dismissed ({count('dismissed')})</option>
@@ -497,10 +642,21 @@ function LeadsTable({
         <p className="muted hint">Apply opens the posting and marks the job as applied.</p>
       </div>
       <SortableTable
+        key={scored ? 'scored' : 'plain'}
         items={items}
-        initial={{ key: 'date', dir: 'desc' }}
-        empty={view === 'new' ? 'No new job leads match these filters.' : 'No job leads here yet.'}
+        initial={{ key: scored ? 'match' : 'date', dir: 'desc' }}
+        empty={view === 'new' || view === 'recommended' ? 'No new job leads match these filters.' : 'No job leads here yet.'}
         columns={[
+          ...(scored
+            ? [
+                {
+                  key: 'match',
+                  label: 'Match',
+                  get: (l: Lead & { match: Match }) => l.match.score,
+                  render: (l: Lead & { match: Match }) => <MatchCell match={l.match} />,
+                },
+              ]
+            : []),
           {
             key: 'title',
             label: 'Job title',

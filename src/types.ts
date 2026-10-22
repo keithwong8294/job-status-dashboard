@@ -23,6 +23,8 @@ export interface Job {
   location?: string
   pay?: Pay
   url?: string
+  /** The blurb some alerts show under a listing (Indeed, sometimes LinkedIn). */
+  description?: string
 }
 
 /** The raw fields we keep from a Gmail message. */

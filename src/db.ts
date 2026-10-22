@@ -1,4 +1,5 @@
 import { openDB, type DBSchema } from 'idb'
+import type { Status } from './model'
 import type { Category, RawEmail } from './types'
 
 /** Everything is stored in this browser only. */
@@ -7,11 +8,12 @@ interface Schema extends DBSchema {
   overrides: { key: string; value: { id: string; category: Category } }
   meta: { key: string; value: unknown }
   leadStatus: { key: string; value: { key: string; status: LeadStatus; at: number } }
+  appStatus: { key: string; value: { key: string; status: Status } }
 }
 
 export type LeadStatus = 'applied' | 'dismissed'
 
-const db = openDB<Schema>('job-dashboard', 2, {
+const db = openDB<Schema>('job-dashboard', 3, {
   upgrade(d, oldVersion) {
     if (oldVersion < 1) {
       d.createObjectStore('emails', { keyPath: 'id' })
@@ -19,13 +21,20 @@ const db = openDB<Schema>('job-dashboard', 2, {
       d.createObjectStore('meta')
     }
     if (oldVersion < 2) d.createObjectStore('leadStatus', { keyPath: 'key' })
+    if (oldVersion < 3) d.createObjectStore('appStatus', { keyPath: 'key' })
   },
 })
 
 export async function loadAll() {
   const d = await db
-  const [emails, overrides, leadStatus] = await Promise.all([d.getAll('emails'), d.getAll('overrides'), d.getAll('leadStatus')])
+  const [emails, overrides, leadStatus, appStatus] = await Promise.all([
+    d.getAll('emails'),
+    d.getAll('overrides'),
+    d.getAll('leadStatus'),
+    d.getAll('appStatus'),
+  ])
   return {
+    appStatus: new Map(appStatus.map((a) => [a.key, a.status])),
     emails,
     overrides: new Map(overrides.map((o) => [o.id, o.category])),
     leadStatus: new Map(leadStatus.map((l) => [l.key, { status: l.status, at: l.at }])),
@@ -49,6 +58,12 @@ export async function setLeadStatus(key: string, status: LeadStatus | undefined,
   else await d.delete('leadStatus', key)
 }
 
+export async function setAppStatus(key: string, status: Status | undefined) {
+  const d = await db
+  if (status) await d.put('appStatus', { key, status })
+  else await d.delete('appStatus', key)
+}
+
 export async function getMeta<T>(key: string): Promise<T | undefined> {
   return (await (await db).get('meta', key)) as T | undefined
 }
@@ -59,5 +74,5 @@ export async function setMeta(key: string, value: unknown) {
 
 export async function clearAll() {
   const d = await db
-  await Promise.all([d.clear('emails'), d.clear('overrides'), d.clear('meta'), d.clear('leadStatus')])
+  await Promise.all([d.clear('emails'), d.clear('overrides'), d.clear('meta'), d.clear('leadStatus'), d.clear('appStatus')])
 }
