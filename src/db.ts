@@ -72,10 +72,11 @@ export async function setMeta(key: string, value: unknown) {
   await (await db).put('meta', value, key)
 }
 
-/** Drops downloaded emails but keeps your edits (relabels, statuses, profile). */
-export async function clearEmails() {
-  const d = await db
-  await Promise.all([d.clear('emails'), d.delete('meta', 'lastSync')])
+/** Removes saved emails that are no longer in the Gmail results. */
+export async function keepOnlyEmails(ids: Set<string>) {
+  const tx = (await db).transaction('emails', 'readwrite')
+  const stale = (await tx.store.getAllKeys()).filter((id) => !ids.has(id))
+  await Promise.all([...stale.map((id) => tx.store.delete(id)), tx.done])
 }
 
 export async function clearAll() {
