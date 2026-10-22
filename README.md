@@ -70,3 +70,7 @@ npm test        # email-sorting tests
 ```
 
 For local runs you can put `VITE_GOOGLE_CLIENT_ID=<your client id>` in a `.env.local` file (ignored by git).
+
+## Drive times
+
+Job leads show a rough drive estimate from the home town set in the resume card. Town locations live in `src/places.json`, built by `scripts/build-places.mjs` from [GeoNames](https://www.geonames.org) (via the `cities.json` npm package, CC BY 4.0) and the `zipcodes` npm package (BSD). Miles are the straight line × 1.3; time assumes 25–55 mph and adds 20 minutes for driving into Manhattan, Brooklyn, Queens or the Bronx.

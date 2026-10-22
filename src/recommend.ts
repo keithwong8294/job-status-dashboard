@@ -7,9 +7,11 @@ export interface Profile {
   targetTitles: string
   minPay: number
   includeRemote: boolean
+  /** Town to estimate drive times from, e.g. "Princeton, NJ". */
+  home: string
 }
 
-export const DEFAULT_PROFILE: Profile = { resume: '', targetTitles: '', minPay: 50000, includeRemote: true }
+export const DEFAULT_PROFILE: Profile = { resume: '', targetTitles: '', minPay: 50000, includeRemote: true, home: '' }
 
 export const hasProfile = (p: Profile) => !!(p.resume.trim() || p.targetTitles.trim())
 

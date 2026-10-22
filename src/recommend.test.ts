@@ -8,6 +8,7 @@ const profile: Profile = {
   targetTitles: 'IT Support Specialist, Junior Systems Administrator, Data Analyst',
   minPay: 50000,
   includeRemote: true,
+  home: '',
 }
 
 describe('recommend', () => {
@@ -63,6 +64,7 @@ describe('recommend from a resume alone', () => {
     targetTitles: '',
     minPay: 50000,
     includeRemote: true,
+    home: '',
   }
 
   it('finds role families in the resume', () => {

@@ -517,3 +517,10 @@ button.tile-button {
 button.tile-button:hover {
   background: var(--hover);
 }
+.drive {
+  font-size: 12px;
+  white-space: nowrap;
+}
+.bad-hint {
+  color: var(--bad);
+}
