@@ -6,20 +6,30 @@ interface Schema extends DBSchema {
   emails: { key: string; value: RawEmail }
   overrides: { key: string; value: { id: string; category: Category } }
   meta: { key: string; value: unknown }
+  leadStatus: { key: string; value: { key: string; status: LeadStatus; at: number } }
 }
 
-const db = openDB<Schema>('job-dashboard', 1, {
-  upgrade(d) {
-    d.createObjectStore('emails', { keyPath: 'id' })
-    d.createObjectStore('overrides', { keyPath: 'id' })
-    d.createObjectStore('meta')
+export type LeadStatus = 'applied' | 'dismissed'
+
+const db = openDB<Schema>('job-dashboard', 2, {
+  upgrade(d, oldVersion) {
+    if (oldVersion < 1) {
+      d.createObjectStore('emails', { keyPath: 'id' })
+      d.createObjectStore('overrides', { keyPath: 'id' })
+      d.createObjectStore('meta')
+    }
+    if (oldVersion < 2) d.createObjectStore('leadStatus', { keyPath: 'key' })
   },
 })
 
 export async function loadAll() {
   const d = await db
-  const [emails, overrides] = await Promise.all([d.getAll('emails'), d.getAll('overrides')])
-  return { emails, overrides: new Map(overrides.map((o) => [o.id, o.category])) }
+  const [emails, overrides, leadStatus] = await Promise.all([d.getAll('emails'), d.getAll('overrides'), d.getAll('leadStatus')])
+  return {
+    emails,
+    overrides: new Map(overrides.map((o) => [o.id, o.category])),
+    leadStatus: new Map(leadStatus.map((l) => [l.key, { status: l.status, at: l.at }])),
+  }
 }
 
 export async function saveEmails(emails: RawEmail[]) {
@@ -33,6 +43,12 @@ export async function setOverride(id: string, category: Category | undefined) {
   else await d.delete('overrides', id)
 }
 
+export async function setLeadStatus(key: string, status: LeadStatus | undefined, at: number) {
+  const d = await db
+  if (status) await d.put('leadStatus', { key, status, at })
+  else await d.delete('leadStatus', key)
+}
+
 export async function getMeta<T>(key: string): Promise<T | undefined> {
   return (await (await db).get('meta', key)) as T | undefined
 }
@@ -43,5 +59,5 @@ export async function setMeta(key: string, value: unknown) {
 
 export async function clearAll() {
   const d = await db
-  await Promise.all([d.clear('emails'), d.clear('overrides'), d.clear('meta')])
+  await Promise.all([d.clear('emails'), d.clear('overrides'), d.clear('meta'), d.clear('leadStatus')])
 }
