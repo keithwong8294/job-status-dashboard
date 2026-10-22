@@ -90,16 +90,68 @@ export function yearsRequired(text?: string): number | undefined {
 }
 
 /**
+ * Kinds of work a resume can point to. A job title in a family the resume
+ * supports counts as on-target even when no target titles are filled in.
+ */
+export const ROLE_FAMILIES: { name: string; title: RegExp; resume: RegExp }[] = [
+  {
+    name: 'IT support',
+    title:
+      /\b(?:help ?desk|service desk|desktop support|tech(?:nical)? support|it support|it specialist|it technician|it associate|computer (?:support|technician)|field (?:service )?technician|support (?:specialist|technician|analyst)|end[- ]user|audio[- ]?visual|av technician|(?:instructional|classroom|educational) technolog\w*|deskside|it analyst|technology (?:specialist|associate|assistant)|it intern)\b/i,
+    resume: /\b(?:tech(?:nical)? support|troubleshoot\w*|help ?desk|hardware|instructional technology|service management)\b/i,
+  },
+  {
+    name: 'systems & networks',
+    title: /\b(?:network (?:administrator|technician|support|specialist|analyst|engineer|operations)|noc|systems? (?:administrator|analyst|support|technician)|sys ?admin|it administrator|infrastructure (?:technician|analyst|support)|cloud support)\b/i,
+    resume: /\b(?:network\+|networking|ccna|windows server|active directory|tcp\/ip)(?!\w)/i,
+  },
+  {
+    name: 'data & analytics',
+    title:
+      /\b(?:data (?:analyst|analytics|specialist|associate|coordinator|technician|engineer|scientist)|business (?:intelligence|analyst|systems analyst)|bi (?:analyst|developer)|reporting (?:analyst|specialist)|analytics|sql (?:developer|analyst)|database (?:administrator|analyst|developer)|insights analyst|operations analyst|financial data)\b/i,
+    resume: /\b(?:sql|tableau|power bi|data analytics|pandas|etl|data modeling)\b/i,
+  },
+  {
+    name: 'software',
+    title: /\b(?:software (?:engineer|developer)|web developer|application developer|full[- ]?stack|front[- ]?end|back[- ]?end|programmer|developer|qa (?:analyst|tester|engineer)|software tester)\b/i,
+    resume: /\b(?:typescript|javascript|c#|python|next\.js|react|object[- ]oriented)(?!\w)/i,
+  },
+  {
+    name: 'operations & logistics',
+    title: /\b(?:operations (?:associate|coordinator|assistant|specialist)|logistics|supply chain|inventory (?:analyst|coordinator|specialist)|fulfillment coordinator|procurement)\b/i,
+    resume: /\b(?:logistics|inventory|shipstation|supply chain)\b/i,
+  },
+  {
+    name: 'HR & people ops',
+    title: /\b(?:hr (?:assistant|coordinator|generalist|associate|analyst|specialist)|human resources|recruit(?:ing|ment)? coordinator|talent acquisition coordinator|people operations|hris)\b/i,
+    resume: /\b(?:human resource\w*|hr management|hris|recruit\w*)\b/i,
+  },
+  {
+    name: 'project coordination',
+    title: /\b(?:project (?:coordinator|assistant|analyst)|it coordinator|technical coordinator|implementation (?:specialist|analyst|coordinator)|program coordinator|pmo)\b/i,
+    resume: /\b(?:project management|agile|scrum|sdlc)\b/i,
+  },
+]
+
+/** The role families a resume shows experience or training for. */
+export function resumeFamilies(resume: string): string[] {
+  return ROLE_FAMILIES.filter((f) => f.resume.test(resume)).map((f) => f.name)
+}
+
+/** Words that hint at tech work without naming the role, worth partial credit. */
+const TECH_HINT = /\b(?:it|technology|technical|technician|computer|systems?|data|digital|software|analyst)\b/i
+
+/**
  * Scores how good a fit a job lead is, out of 100:
  * title 35, skills 15, location 20, pay 15, experience level 15.
  */
 export function scoreLead(job: Job, profile: Profile): Match {
   const reasons: Match['reasons'] = []
   const title = job.title ?? ''
-  const text = `${title}\n${job.description ?? ''}`
+  const text = `${title}\n${job.company ?? ''}\n${job.description ?? ''}`
   let score = 0
 
-  // Title: overlap with the closest target title, plus resume words in the title.
+  // Title: overlap with the closest target title, or a role family the resume supports.
   const titleWords = new Set(words(title))
   let best = 0
   let bestTarget = ''
@@ -109,10 +161,15 @@ export function scoreLead(job: Job, profile: Profile): Match {
     const overlap = tw.filter((w) => titleWords.has(w)).length / Math.max(tw.length, Math.min(titleWords.size, 4))
     if (overlap > best) [best, bestTarget] = [overlap, t]
   }
-  const titlePoints = Math.round(35 * Math.min(1, best * 1.25))
+  const targetPoints = Math.round(35 * Math.min(1, best * 1.25))
+  const families = resumeFamilies(profile.resume)
+  const family = ROLE_FAMILIES.find((f) => families.includes(f.name) && f.title.test(title))
+  const familyPoints = family ? 32 : profile.resume.trim() && TECH_HINT.test(title) ? 14 : 0
+  const titlePoints = Math.max(targetPoints, familyPoints)
   score += titlePoints
-  if (titlePoints >= 20) reasons.push({ good: true, text: `like "${bestTarget}"` })
-  else if (targetTitles(profile).length) reasons.push({ good: false, text: 'title off-target' })
+  if (targetPoints >= 20 && targetPoints >= familyPoints) reasons.push({ good: true, text: `like "${bestTarget}"` })
+  else if (family) reasons.push({ good: true, text: `${family.name} role` })
+  else if (titlePoints < 10) reasons.push({ good: false, text: 'title off-target' })
 
   // Skills from the resume that the listing mentions.
   const skills = resumeSkills(profile.resume).filter((s) => hasWord(text, s))
@@ -154,5 +211,5 @@ export function scoreLead(job: Job, profile: Profile): Match {
 
 /** Good chance and worth applying: on-target, in range, not senior, not underpaid. */
 export function isRecommended(m: Match): boolean {
-  return m.score >= 60 && !m.reasons.some((r) => !r.good && /senior|yrs required|outside|under \$/.test(r.text))
+  return m.score >= 55 && !m.reasons.some((r) => !r.good && /senior|yrs required|outside|under \$|off-target/.test(r.text))
 }
