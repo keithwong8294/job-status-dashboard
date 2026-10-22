@@ -1,8 +1,8 @@
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 
-// Relative base so the build works at https://<user>.github.io/<repo>/
 export default defineConfig({
-  base: './',
   plugins: [react()],
+  // Google sign-in only allows the origin registered in Cloud Console.
+  server: { port: 5173, strictPort: true },
 })
