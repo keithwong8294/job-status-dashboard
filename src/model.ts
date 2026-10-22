@@ -204,7 +204,7 @@ export function matches(
   return (
     has(item.title, f.title) &&
     has(item.location, f.location) &&
-    (!f.minPay || (item.pay?.maxAnnual ?? 0) >= f.minPay) &&
+    (!f.minPay || (item.pay?.minAnnual ?? 0) >= f.minPay) &&
     hasAll(text, f.responsibilities)
   )
 }

@@ -509,7 +509,7 @@ function ApplicationsTable({
           { key: 'company', label: 'Company', get: (a) => a.company },
           { key: 'title', label: 'Job title', get: (a) => a.title },
           { key: 'location', label: 'Location', get: (a) => a.location },
-          { key: 'pay', label: 'Pay', get: (a) => a.pay?.maxAnnual, render: (a) => formatPay(a.pay) },
+          { key: 'pay', label: 'Pay', get: (a) => a.pay?.minAnnual, render: (a) => formatPay(a.pay) },
           {
             key: 'status',
             label: 'Status',
@@ -779,7 +779,7 @@ function LeadsTable({
           },
           { key: 'company', label: 'Company', get: (l) => l.company },
           { key: 'location', label: 'Location', get: (l) => l.location },
-          { key: 'pay', label: 'Pay', get: (l) => l.pay?.maxAnnual, render: (l) => formatPay(l.pay) },
+          { key: 'pay', label: 'Pay', get: (l) => l.pay?.minAnnual, render: (l) => formatPay(l.pay) },
           { key: 'source', label: 'From', get: (l) => SOURCE_LABELS[l.source] },
           { key: 'date', label: 'Received', get: (l) => l.date, render: (l) => fmtDate(l.date) },
           {

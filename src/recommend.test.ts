@@ -42,7 +42,9 @@ describe('recommend', () => {
     const senior = scoreLead({ title: 'Senior Systems Administrator', location: 'New York, NY', pay: parsePay('$120K a year') }, profile)
     const far = scoreLead({ title: 'IT Support Specialist', location: 'Syracuse, NY', pay: parsePay('$60K a year') }, profile)
     const low = scoreLead({ title: 'IT Support Specialist', location: 'Newark, NJ', pay: parsePay('$18 - $20 an hour') }, profile)
-    for (const m of [senior, far, low]) expect(isRecommended(m)).toBe(false)
+    // Judged by the bottom of the range: $45K–$60K could mean $45K.
+    const range = scoreLead({ title: 'IT Support Specialist', location: 'Newark, NJ', pay: parsePay('$45,000 - $60,000 a year') }, profile)
+    for (const m of [senior, far, low, range]) expect(isRecommended(m)).toBe(false)
   })
 
   it('ranks a matching job above an unrelated one', () => {
