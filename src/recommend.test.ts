@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { parsePay } from './classify'
-import { isRecommended, region, resumeSkills, scoreLead, yearsRequired, type Profile } from './recommend'
+import { isRecommended, region, resumeFamilies, resumeSkills, scoreLead, yearsRequired, type Profile } from './recommend'
 
 // A made-up profile; real resumes stay in the browser.
 const profile: Profile = {
@@ -49,5 +49,40 @@ describe('recommend', () => {
     const it_ = scoreLead({ title: 'IT Support Specialist', location: 'Brooklyn, NY' }, profile)
     const driver = scoreLead({ title: 'Delivery Driver', location: 'Brooklyn, NY' }, profile)
     expect(it_.score).toBeGreaterThan(driver.score + 25)
+  })
+})
+
+describe('recommend from a resume alone', () => {
+  // Made-up resume text shaped like a new IT grad's; no target titles filled in.
+  const resumeOnly: Profile = {
+    resume:
+      'B.A. Information Technology. Skills: SQL, T-SQL, Python, TypeScript, Tableau, ETL, Microsoft 365, Agile. ' +
+      'Instructional Technology Specialist: technical support, troubleshooting classroom hardware. Operations intern: inventory, logistics.',
+    targetTitles: '',
+    minPay: 50000,
+    includeRemote: true,
+  }
+
+  it('finds role families in the resume', () => {
+    expect(resumeFamilies(resumeOnly.resume)).toEqual(
+      expect.arrayContaining(['IT support', 'data & analytics', 'software', 'operations & logistics']),
+    )
+  })
+
+  it('recommends matching local jobs with no target titles', () => {
+    for (const title of ['Help Desk Technician', 'IT Support Specialist', 'Data Analyst', 'Junior Software Developer', 'Desktop Support Analyst']) {
+      const m = scoreLead({ title, company: 'Acme', location: 'Newark, NJ' }, resumeOnly)
+      expect(isRecommended(m), title).toBe(true)
+    }
+  })
+
+  it('still skips unrelated, senior and far-away jobs', () => {
+    const skip = [
+      scoreLead({ title: 'Delivery Driver', location: 'Newark, NJ' }, resumeOnly),
+      scoreLead({ title: 'Registered Nurse', location: 'New York, NY' }, resumeOnly),
+      scoreLead({ title: 'Senior Data Analyst', location: 'New York, NY' }, resumeOnly),
+      scoreLead({ title: 'Data Analyst', location: 'Austin, TX' }, resumeOnly),
+    ]
+    for (const m of skip) expect(isRecommended(m)).toBe(false)
   })
 })

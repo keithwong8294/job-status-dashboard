@@ -20,7 +20,7 @@ import {
   type SortDir,
   type Status,
 } from './model'
-import { DEFAULT_PROFILE, hasProfile, isRecommended, resumeSkills, scoreLead, type Match, type Profile } from './recommend'
+import { DEFAULT_PROFILE, hasProfile, isRecommended, resumeFamilies, resumeSkills, scoreLead, type Match, type Profile } from './recommend'
 import { pdfText } from './pdf'
 import { syncGmail } from './sync'
 import { CATEGORY_LABELS, type Category, type EmailRecord, type RawEmail } from './types'
@@ -547,7 +547,7 @@ function ProfileCard({ profile, onSave }: { profile: Profile; onSave: (p: Profil
   if (!open) {
     return (
       <p className="muted profile-line">
-        Ranking leads against your resume ({resumeSkills(profile.resume).length} skills, {profile.targetTitles.split(/[,\n;]+/).filter((t) => t.trim()).length} target titles,
+        Ranking leads against your resume ({resumeFamilies(profile.resume).join(', ') || 'no role types found'}; {resumeSkills(profile.resume).length} skills, {profile.targetTitles.split(/[,\n;]+/).filter((t) => t.trim()).length} target titles,
         ${Math.round(profile.minPay / 1000)}K+, NY/NJ/CT{profile.includeRemote ? ' or remote' : ''}).{' '}
         <button className="link" onClick={() => setOpen(true)}>
           Edit
@@ -596,6 +596,11 @@ function ProfileCard({ profile, onSave }: { profile: Profile; onSave: (p: Profil
         <textarea rows={5} value={draft.resume} onChange={(e) => setDraft({ ...draft, resume: e.target.value })} />
       </label>
       {skills.length > 0 && <p className="muted hint">Skills found: {skills.join(', ')}</p>}
+      {draft.resume.trim() && (
+        <p className="muted hint">
+          Role types it fits: {resumeFamilies(draft.resume).join(', ') || 'none found, so add target titles below'}
+        </p>
+      )}
       <div className="filters">
         <label className="wide">
           Job titles you want (comma separated)
