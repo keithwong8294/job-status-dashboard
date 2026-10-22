@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { classify, extractLeads, parsePay, toRecord } from './classify'
 import { demoEmails } from './demo'
-import { buildApplications } from './model'
+import { buildApplications, buildLeads } from './model'
 import type { RawEmail } from './types'
 
 const mail = (over: Partial<RawEmail>): RawEmail => ({
@@ -139,5 +139,24 @@ describe('buildApplications', () => {
   it('reads a short city name, not the whole sentence', () => {
     const r = rec('Thank you for applying to Acme', 'Thanks for applying for the Data Analyst position at Acme in Chicago, IL.', 1)
     expect(r.job.location).toBe('Chicago, IL')
+  })
+})
+
+describe('buildLeads', () => {
+  it('merges the same job from several alerts into one row', () => {
+    const alert = (day: number, pay: string) =>
+      toRecord(
+        mail({
+          id: `a${day}`,
+          date: Date.UTC(2026, 5, day),
+          fromDomain: 'linkedin.com',
+          subject: 'Data Analyst: new jobs for you',
+          body: `Data Analyst\nContoso\nSeattle, WA\n${pay}\nhttps://www.linkedin.com/comm/jobs/view/${day}\n`,
+        }),
+      )
+    const leads = buildLeads([alert(1, '$80K - $95K a year'), alert(5, '')])
+    expect(leads).toHaveLength(1)
+    expect(leads[0]).toMatchObject({ seen: 2, date: Date.UTC(2026, 5, 5), url: 'https://www.linkedin.com/comm/jobs/view/5' })
+    expect(leads[0].pay?.maxAnnual).toBe(95000)
   })
 })

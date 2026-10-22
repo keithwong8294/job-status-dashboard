@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { toRecord } from './classify'
-import { clearAll, getMeta, loadAll, setOverride } from './db'
+import { clearAll, getMeta, loadAll, setLeadStatus, setOverride, type LeadStatus } from './db'
 import { demoEmails } from './demo'
 import { AuthExpired, isSignedIn, setRateLimitListener, signIn, signOut, START_DATE } from './gmail'
 import {
@@ -51,6 +51,7 @@ export default function App() {
   const [clientId, setClientId] = useState(ENV_CLIENT_ID || readStored('clientId') || '')
   const [raws, setRaws] = useState<RawEmail[]>([])
   const [overrides, setOverrides] = useState(new Map<string, Category>())
+  const [leadStatus, setLeadStatusState] = useState(new Map<string, { status: LeadStatus; at: number }>())
   const [demo, setDemo] = useState(false)
   const [connected, setConnected] = useState(false)
   const [busy, setBusy] = useState('')
@@ -61,9 +62,10 @@ export default function App() {
   const syncing = useRef(false)
 
   const reload = useCallback(async () => {
-    const { emails, overrides } = await loadAll()
+    const { emails, overrides, leadStatus } = await loadAll()
     setRaws(emails)
     setOverrides(overrides)
+    setLeadStatusState(leadStatus)
     setLastSync(await getMeta<number>('lastSync'))
   }, [])
 
@@ -140,6 +142,15 @@ export default function App() {
     else next.delete(id)
     setOverrides(next)
     if (!demo) await setOverride(id, category || undefined)
+  }
+
+  async function markLead(key: string, status: LeadStatus | undefined) {
+    const next = new Map(leadStatus)
+    const at = Date.now()
+    if (status) next.set(key, { status, at })
+    else next.delete(key)
+    setLeadStatusState(next)
+    if (!demo) await setLeadStatus(key, status, at)
   }
 
   const applications = useMemo(() => buildApplications(records), [records])
@@ -246,7 +257,7 @@ export default function App() {
             </nav>
             {tab !== 'emails' && <FilterBar filters={filters} onChange={setFilters} />}
             {tab === 'applications' && <ApplicationsTable apps={applications} filters={filters} />}
-            {tab === 'leads' && <LeadsTable leads={leads} filters={filters} />}
+            {tab === 'leads' && <LeadsTable leads={leads} filters={filters} statuses={leadStatus} onMark={markLead} />}
             {tab === 'emails' && <EmailsTable records={records} onRelabel={relabel} />}
           </section>
         </>
@@ -447,34 +458,100 @@ function ApplicationsTable({ apps, filters }: { apps: Application[]; filters: Fi
   )
 }
 
-function LeadsTable({ leads, filters }: { leads: Lead[]; filters: Filters }) {
-  const items = leads.filter((l) => matches(l, l.email.body, filters))
+type LeadView = 'new' | LeadStatus | 'all'
+
+function LeadsTable({
+  leads,
+  filters,
+  statuses,
+  onMark,
+}: {
+  leads: Lead[]
+  filters: Filters
+  statuses: Map<string, { status: LeadStatus; at: number }>
+  onMark: (key: string, status: LeadStatus | undefined) => void
+}) {
+  const [view, setView] = useState<LeadView>('new')
+  const matching = leads.filter((l) => matches(l, l.email.body, filters))
+  const count = (v: LeadView) =>
+    matching.filter((l) => v === 'all' || (statuses.get(l.key)?.status ?? 'new') === v).length
+  const items = matching.filter((l) => view === 'all' || (statuses.get(l.key)?.status ?? 'new') === view)
+
+  function apply(l: Lead) {
+    if (l.url) window.open(l.url, '_blank', 'noopener')
+    onMark(l.key, 'applied')
+  }
+
   return (
-    <SortableTable
-      items={items}
-      initial={{ key: 'date', dir: 'desc' }}
-      empty="No job leads match these filters."
-      columns={[
-        {
-          key: 'title',
-          label: 'Job title',
-          get: (l) => l.title,
-          render: (l) =>
-            l.url ? (
-              <a href={l.url} target="_blank" rel="noreferrer">
-                {l.title}
-              </a>
-            ) : (
-              l.title
-            ),
-        },
-        { key: 'company', label: 'Company', get: (l) => l.company },
-        { key: 'location', label: 'Location', get: (l) => l.location },
-        { key: 'pay', label: 'Pay', get: (l) => l.pay?.maxAnnual, render: (l) => formatPay(l.pay) },
-        { key: 'source', label: 'From', get: (l) => SOURCE_LABELS[l.source] },
-        { key: 'date', label: 'Received', get: (l) => l.date, render: (l) => fmtDate(l.date) },
-      ]}
-    />
+    <>
+      <div className="filters">
+        <label className="narrow">
+          Show
+          <select value={view} onChange={(e) => setView(e.target.value as LeadView)}>
+            <option value="new">New ({count('new')})</option>
+            <option value="applied">Applied ({count('applied')})</option>
+            <option value="dismissed">Dismissed ({count('dismissed')})</option>
+            <option value="all">All ({count('all')})</option>
+          </select>
+        </label>
+        <p className="muted hint">Apply opens the posting and marks the job as applied.</p>
+      </div>
+      <SortableTable
+        items={items}
+        initial={{ key: 'date', dir: 'desc' }}
+        empty={view === 'new' ? 'No new job leads match these filters.' : 'No job leads here yet.'}
+        columns={[
+          {
+            key: 'title',
+            label: 'Job title',
+            get: (l) => l.title,
+            render: (l) =>
+              l.url ? (
+                <a href={l.url} target="_blank" rel="noreferrer">
+                  {l.title}
+                </a>
+              ) : (
+                l.title
+              ),
+          },
+          { key: 'company', label: 'Company', get: (l) => l.company },
+          { key: 'location', label: 'Location', get: (l) => l.location },
+          { key: 'pay', label: 'Pay', get: (l) => l.pay?.maxAnnual, render: (l) => formatPay(l.pay) },
+          { key: 'source', label: 'From', get: (l) => SOURCE_LABELS[l.source] },
+          { key: 'date', label: 'Received', get: (l) => l.date, render: (l) => fmtDate(l.date) },
+          {
+            key: 'action',
+            label: '',
+            get: (l) => statuses.get(l.key)?.at,
+            render: (l) => {
+              const s = statuses.get(l.key)
+              if (s) {
+                return (
+                  <span className="lead-actions">
+                    <span className={`pill ${s.status === 'applied' ? 'responded' : 'muted-pill'}`}>
+                      {s.status === 'applied' ? `Applied ${fmtDate(s.at)}` : 'Dismissed'}
+                    </span>
+                    <button className="link" onClick={() => onMark(l.key, undefined)}>
+                      Undo
+                    </button>
+                  </span>
+                )
+              }
+              return (
+                <span className="lead-actions">
+                  <button className="small" onClick={() => apply(l)} disabled={!l.url} title={l.url ? undefined : 'No link in the email'}>
+                    Apply
+                  </button>
+                  <button className="small ghost" onClick={() => onMark(l.key, 'dismissed')} aria-label={`Dismiss ${l.title}`}>
+                    Dismiss
+                  </button>
+                </span>
+              )
+            },
+          },
+        ]}
+      />
+    </>
   )
 }
 
@@ -484,7 +561,7 @@ function EmailsTable({ records, onRelabel }: { records: EmailRecord[]; onRelabel
   return (
     <>
       <div className="filters">
-        <label>
+        <label className="narrow">
           Show
           <select value={show} onChange={(e) => setShow(e.target.value as Category | 'all')}>
             <option value="all">All types</option>

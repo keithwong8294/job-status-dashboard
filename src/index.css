@@ -248,6 +248,9 @@ a {
 .filters label.wide {
   flex: 2 1 220px;
 }
+.filters label.narrow {
+  flex: 0 1 200px;
+}
 .filters .hint {
   margin: 0 0 8px;
   font-size: 13px;
@@ -313,6 +316,21 @@ td select.overridden {
 .pill.rejected {
   background: var(--bad-bg);
   color: var(--bad);
+}
+
+button.small {
+  padding: 4px 10px;
+  font-size: 13px;
+}
+.lead-actions {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  white-space: nowrap;
+}
+.pill.muted-pill {
+  background: var(--hover);
+  color: var(--muted);
 }
 
 .thread {

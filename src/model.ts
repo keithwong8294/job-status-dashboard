@@ -16,10 +16,13 @@ export interface Application {
 }
 
 export interface Lead extends Job {
+  /** Title + company, so the same job from several alerts is one row. */
   key: string
   source: Source
   date: number
   email: EmailRecord
+  /** How many alert emails listed this job. */
+  seen: number
 }
 
 const STATUS_OF: Partial<Record<Category, Status>> = {
@@ -68,9 +71,23 @@ export function buildApplications(records: EmailRecord[]): Application[] {
 }
 
 export function buildLeads(records: EmailRecord[]): Lead[] {
-  return records.flatMap((r) =>
-    r.leads.map((l, i) => ({ ...l, key: `${r.id}-${i}`, source: r.source, date: r.date, email: r })),
-  )
+  const byKey = new Map<string, Lead>()
+  for (const r of [...records].sort((a, b) => b.date - a.date)) {
+    for (const l of r.leads) {
+      const key = `${normalize(l.title ?? '')}|${normalize(l.company ?? '')}`
+      const found = byKey.get(key)
+      if (!found) {
+        byKey.set(key, { ...l, key, source: r.source, date: r.date, email: r, seen: 1 })
+        continue
+      }
+      // Keep the newest listing but fill gaps from older ones.
+      found.seen++
+      found.location ??= l.location
+      found.pay ??= l.pay
+      found.url ??= l.url
+    }
+  }
+  return [...byKey.values()]
 }
 
 export interface Filters {
