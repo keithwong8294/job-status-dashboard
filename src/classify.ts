@@ -232,7 +232,7 @@ const SUBJECT_PATTERNS: RegExp[] = [
 
 const BODY_COMPANY: RegExp[] = [
   /items were sent to (?<company>.+?)\. Good luck/i, // Indeed
-  /(?:position|role|opportunity) at (?<company>[A-Z][\w&.,'’-]*(?: [A-Z&][\w&.,'’-]*){0,5})/,
+  /(?:[Pp]osition|[Rr]ole|[Oo]pportunity) at (?<company>[A-Z][\w&.,'’-]*(?: [A-Z&][\w&.,'’-]*){0,5})/,
   /(?:interest in|apply(?:ing)? to|apply(?:ing)? with|joining) (?<company>[A-Z][\w&.,'’-]*(?: [A-Z&][\w&.,'’-]*){0,5})/,
 ]
 
@@ -240,7 +240,7 @@ const BODY_TITLE: RegExp[] = [
   /(?:position|role) of ['‘"]?(?<title>[^'’".\n]{3,80}?)['’"]?(?:\.|\n| -\d| at )/i,
   /(?:position|role) ['‘"](?<title>[^'’"\n]{3,80})['’"]/i,
   /(?:applying|application) (?:for|to) the (?<title>[^.\n]{3,80}?) (?:position|role|opening)\b/i,
-  /\b(?:the|for|as an?) (?<title>[A-Z][\w/&+.-]*(?: [A-Z][\w/&+.-]*| I{1,3}| of| and){0,6}) (?:role|position|opening|job)\b/,
+  /\b(?:the|for|as an?) (?<title>[A-Z][\w/&+.-]*(?: [A-Z][\w/&+.-]*| I{1,3}| of| and){0,6}) (?:[Rr]ole|[Pp]osition|[Oo]pening|[Jj]ob)\b/,
 ]
 
 /** Sender names that are the hiring software or a mailbox, not the employer. */
