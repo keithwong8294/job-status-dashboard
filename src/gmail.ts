@@ -103,7 +103,8 @@ export async function signIn(clientId: string, interactive: boolean): Promise<st
   })
   return new Promise((resolve, reject) => {
     pending = { resolve, reject }
-    tokenClient!.requestAccessToken({ prompt: interactive ? 'consent' : '' })
+    // Always offer the account picker so people sharing a computer sign in as themselves.
+    tokenClient!.requestAccessToken({ prompt: interactive ? 'consent' : 'select_account' })
   })
 }
 
@@ -114,6 +115,11 @@ export function signOut() {
 }
 
 export const isSignedIn = () => !!token && Date.now() < tokenExpires
+
+/** The signed-in Gmail address, which decides whose saved data to open. */
+export async function accountEmail(): Promise<string> {
+  return (await api<{ emailAddress: string }>('/profile')).emailAddress.toLowerCase()
+}
 
 /**
  * Google access tokens last an hour. Getting a new one opens a Google popup,
