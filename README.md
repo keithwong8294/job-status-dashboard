@@ -6,6 +6,9 @@ location, pay and responsibilities.
 
 - **Read-only.** The app asks Google for `gmail.readonly`, so it can't send, delete or change mail.
 - **No server.** The page talks to Gmail from your browser, and emails are saved only in that browser (IndexedDB).
+- **Private per person.** Anyone can use the same page with their own Gmail. Each account's data is kept in its
+  own browser database that opens only after that account signs in, so nobody, including the site's owner,
+  can see anyone else's email.
 - **Live.** While the page is open it checks Gmail every 2 minutes and whenever you switch back to the tab.
   Google ends browser sessions after about an hour, so after that the page asks you to click **Reconnect**.
 
@@ -45,11 +48,24 @@ To skip pasting the ID in each new browser, add it as a repository variable name
 `GOOGLE_CLIENT_ID` (repo **Settings → Secrets and variables → Actions → Variables**), then re-run
 the deploy. Client IDs are not secret.
 
+## Sharing it with other people
+
+Others use the same link and sign in with their own Gmail. Nothing of theirs reaches you or any server.
+
+1. In [Google Cloud Console](https://console.cloud.google.com/) → **Google Auth Platform → Audience → Test users**,
+   add each person's Gmail address (up to 100). Google blocks anyone not on this list while the app is in Testing.
+2. Set the `GOOGLE_CLIENT_ID` repository variable (above) so they don't need a client ID of their own.
+3. Send them the link. They'll see "Google hasn't verified this app" and click **Continue**.
+
+Opening it to anyone without the test-user list needs Google verification. Because `gmail.readonly` is a
+restricted scope, that includes a yearly third-party security assessment.
+
 ## Using it
 
 Open **https://keithwong8294.github.io/job-status-dashboard/** and click **Connect Gmail**.
 Leave the tab open for live updates. Your saved emails stay in that browser between visits,
-so later visits only download what's new.
+so later visits only download what's new. Your data appears only after you sign in, and
+**Disconnect** offers to delete it, which is worth doing on a shared computer.
 
 Click **Try with sample data** to see the dashboard without connecting Gmail.
 

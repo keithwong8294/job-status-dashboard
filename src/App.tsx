@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { toRecord } from './classify'
-import { clearAll, getMeta, loadAll, setAppStatus, setLeadStatus, setMeta, setOverride, type LeadStatus } from './db'
+import { clearAll, closeAccount, getMeta, loadAll, openAccount, setAppStatus, setLeadStatus, setMeta, setOverride, type LeadStatus } from './db'
 import { demoEmails } from './demo'
-import { AuthExpired, isSignedIn, setRateLimitListener, signIn, signOut, START_DATE } from './gmail'
+import { accountEmail, AuthExpired, isSignedIn, setRateLimitListener, signIn, signOut, START_DATE } from './gmail'
 import {
   buildApplications,
   buildLeads,
@@ -66,6 +66,8 @@ export default function App() {
   const [profile, setProfileState] = useState<Profile>(DEFAULT_PROFILE)
   const [demo, setDemo] = useState(false)
   const [connected, setConnected] = useState(false)
+  /** The Gmail account whose data is showing; nothing loads until someone signs in. */
+  const [account, setAccount] = useState('')
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
   const [lastSync, setLastSync] = useState<number>()
@@ -84,9 +86,16 @@ export default function App() {
     setLastSync(await getMeta<number>('lastSync'))
   }, [])
 
-  useEffect(() => {
-    reload()
-  }, [reload])
+  function forget() {
+    closeAccount()
+    setAccount('')
+    setRaws([])
+    setOverrides(new Map())
+    setLeadStatusState(new Map())
+    setAppStatusState(new Map())
+    setProfileState(DEFAULT_PROFILE)
+    setLastSync(undefined)
+  }
 
   const sync = useCallback(async () => {
     if (syncing.current || !isSignedIn()) return
@@ -128,6 +137,13 @@ export default function App() {
     try {
       await signIn(clientId, !readStored('connectedOnce'))
       writeStored('connectedOnce', '1')
+      const email = await accountEmail()
+      if (email !== account) {
+        forget()
+        await openAccount(email)
+        setAccount(email)
+        await reload()
+      }
       setConnected(true)
     } catch (e) {
       setError(`Couldn't connect to Gmail: ${e instanceof Error ? e.message : e}`)
@@ -137,11 +153,11 @@ export default function App() {
   async function disconnect() {
     signOut()
     setConnected(false)
-    if (confirm('Also delete the emails saved in this browser?')) {
+    if (account && confirm(`Also delete the data saved in this browser for ${account}?`)) {
       await clearAll()
       writeStored('connectedOnce', undefined)
-      await reload()
     }
+    forget()
   }
 
   const demoData = useMemo(() => (demo ? demoEmails() : []), [demo])
@@ -213,9 +229,9 @@ export default function App() {
             {demo
               ? 'Showing made-up sample data.'
               : connected
-                ? `Live from Gmail. ${busy || (lastSync ? `Last checked ${new Date(lastSync).toLocaleTimeString()}.` : '')}`
+                ? `Live from ${account}. ${busy || (lastSync ? `Last checked ${new Date(lastSync).toLocaleTimeString()}.` : '')}`
                 : hasData
-                  ? `Saved data${lastSync ? ` as of ${new Date(lastSync).toLocaleString()}` : ''}. Reconnect for live updates.`
+                  ? `Saved data for ${account}${lastSync ? ` as of ${new Date(lastSync).toLocaleString()}` : ''}. Reconnect for live updates.`
                   : 'Counting job emails since May 1, 2026.'}
           </p>
         </div>
@@ -315,7 +331,9 @@ export default function App() {
       )}
 
       {!hasData && !demo && clientId && !busy && (
-        <p className="muted empty">Connect Gmail to load your job emails, or try the sample data first.</p>
+        <p className="muted empty">
+          Connect Gmail to see your dashboard. Your email stays in your own browser; nobody else, including whoever shared this page, can see it.
+        </p>
       )}
       {busy && !hasData && <p className="muted empty">{busy}</p>}
 
