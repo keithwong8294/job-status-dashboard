@@ -1,3 +1,4 @@
+import { guessState } from './distance'
 import type { Job } from './types'
 
 /** What the match score compares jobs against. Saved only in this browser. */
@@ -76,6 +77,9 @@ export function region(location?: string): Region {
   if (FAR_FROM_NYC.test(location)) return 'far'
   if (/\b(?:NY|NJ|CT)\b|new york|new jersey|connecticut/i.test(location)) return 'tristate'
   if (/\bUnited States\b/i.test(location)) return 'unknown'
+  // A bare town ("Piscataway") from LinkedIn.
+  const state = guessState(location)
+  if (state) return state === 'PA' ? 'far' : 'tristate'
   return 'far'
 }
 

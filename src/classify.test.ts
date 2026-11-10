@@ -53,6 +53,8 @@ describe('parsePay', () => {
     expect(parsePay('$120K - $150K a year')).toMatchObject({ minAnnual: 120000, maxAnnual: 150000 })
     expect(parsePay('$25 - $30 an hour')).toMatchObject({ minAnnual: 52000, maxAnnual: 62400 })
     expect(parsePay('Salary: $95,000/yr')).toMatchObject({ minAnnual: 95000, maxAnnual: 95000 })
+    expect(parsePay('$50–60K/yr • Full-Time')).toMatchObject({ minAnnual: 50000, maxAnnual: 60000 })
+    expect(parsePay('$74.6–105.8K/yr')).toMatchObject({ minAnnual: 74600, maxAnnual: 105800 })
     expect(parsePay('$5,000 per month')).toMatchObject({ minAnnual: 60000 })
     expect(parsePay('no pay listed')).toBeUndefined()
   })

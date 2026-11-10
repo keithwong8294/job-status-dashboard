@@ -8,7 +8,7 @@ export const CATEGORY_LABELS: Record<Category, string> = {
   other: 'Not job-related',
 }
 
-export type Source = 'linkedin' | 'indeed' | 'glassdoor' | 'direct'
+export type Source = 'linkedin' | 'indeed' | 'glassdoor' | 'handshake' | 'direct'
 
 /** Pay normalized to an annual USD range so hourly and salaried jobs sort together. */
 export interface Pay {

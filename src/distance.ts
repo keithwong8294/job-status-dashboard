@@ -38,7 +38,7 @@ const METROS: [RegExp, string][] = [
 const clean = (town: string) =>
   town
     .toLowerCase()
-    .replace(/\b(?:township|twp\.?|borough|boro|city of|village of|town of)\b/g, '')
+    .replace(/\b(?:township of|township|twp\.?|borough of|borough|boro|city of|village of|town of)\b/g, '')
     .replace(/\bst\.? /g, 'saint ')
     .replace(/\bmt\.? /g, 'mount ')
     .replace(/\s+/g, ' ')
@@ -50,6 +50,12 @@ function lookup(town: string, state: string): [number, number] | undefined {
   for (const k of tries) if (PLACES[k]) return PLACES[k]
 }
 
+/** The state of a bare town name like "Warren", checking NJ, NY, CT and PA in that order. */
+export function guessState(town: string): string | undefined {
+  if (!/^[A-Za-z][A-Za-z .'-]{1,38}$/.test(town.trim())) return undefined
+  return ['NJ', 'NY', 'CT', 'PA'].find((st) => lookup(town, st))
+}
+
 /** Finds where a job location string is, if it names a town we know. */
 export function locate(location?: string): [number, number] | undefined {
   if (!location) return undefined
@@ -58,7 +64,11 @@ export function locate(location?: string): [number, number] | undefined {
   const m = location.match(
     /([A-Za-z][A-Za-z .'-]*?),?\s+(NJ|NY|CT|PA|DE|MD|MA|RI|DC|new jersey|new york|connecticut|pennsylvania|delaware|maryland|massachusetts|rhode island)\b/i,
   )
-  if (!m) return undefined
+  if (!m) {
+    // LinkedIn sometimes gives a bare town ("Warren"); assume the nearest states.
+    const state = guessState(location)
+    return state ? lookup(location, state) : undefined
+  }
   const state = m[2].length === 2 ? m[2].toUpperCase() : STATE_NAMES[m[2].toLowerCase()]
   const town = m[1].replace(/^(?:.*\bin |remote |hybrid |on-?site )/i, '')
   return lookup(town, state)

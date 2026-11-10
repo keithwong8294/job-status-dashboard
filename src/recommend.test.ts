@@ -25,6 +25,9 @@ describe('recommend', () => {
     expect(region('Austin, TX')).toBe('far')
     expect(region('Remote')).toBe('remote')
     expect(region(undefined)).toBe('unknown')
+    // LinkedIn sometimes lists only the town.
+    expect(region('Piscataway')).toBe('tristate')
+    expect(region('Greater Philadelphia')).toBe('far')
   })
 
   it('reads years of experience', () => {

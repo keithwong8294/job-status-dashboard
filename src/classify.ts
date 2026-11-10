@@ -5,6 +5,8 @@ const BOARD_DOMAINS: Record<string, Source> = {
   'indeed.com': 'indeed',
   'indeedemail.com': 'indeed',
   'glassdoor.com': 'glassdoor',
+  'joinhandshake.com': 'handshake',
+  'handshake.com': 'handshake',
 }
 
 export function sourceOf(domain: string): Source {
@@ -68,6 +70,10 @@ const ALERT = [
   /(?:job|role|opportunity) (?:at|for you)/i,
   /great fit/i,
   / @ /,
+  /\d+ more .{0,30}jobs?\b/i, // Indeed: "… at Acme. 9 more Teen jobs in Marlboro, NJ"
+  /may be a fit for/i, // LinkedIn: "You may be a fit for Acme's Analyst role"
+  /^view .+ jobs\b/i, // LinkedIn: "View Acme jobs and your next steps"
+  /top applicant for|jobs round-up/i, // Handshake weekly digest
 ]
 
 /** Board notifications that are about something other than open jobs. */
@@ -106,6 +112,10 @@ export function classify(raw: RawEmail): Category {
   const text = `${head}\n${raw.body.slice(0, 4000)}`
 
   if (source !== 'direct') {
+    // Recruiter cold messages on Handshake, which often say "thanks for your interest".
+    if (/just messaged you|sent you \d+ new messages?/i.test(head)) return 'other'
+    // Indeed passes on employer messages about a job you applied to.
+    if (/^new message from .+ - /i.test(raw.subject)) return 'response'
     // Boards forward employer rejections and confirm one-click applications.
     if (anyMatch(REJECTION, head)) return 'rejection'
     if (anyMatch(APPLICATION, head) && !/apply now/i.test(raw.subject)) return 'application'
@@ -168,6 +178,8 @@ export function parsePay(text: string): Pay | undefined {
   if (!m) return undefined
   let min = toNumber(m[1].replace(/\s/g, ''))
   let max = m[2] ? toNumber(m[2].replace(/\s/g, '')) : min
+  // "$50–60K/yr" (Handshake): the K on the high end applies to both.
+  if (/k$/i.test(m[2] ?? '') && !/k$/i.test(m[1].trim()) && min < 1000) min *= 1000
   if (!isFinite(min) || min <= 0) return undefined
   const unit = (m[3] ?? '').toLowerCase()
   let factor = 1
@@ -212,6 +224,10 @@ function withoutFooter(text: string): string {
 // ---------- job details for application / response / rejection ----------
 
 const SUBJECT_PATTERNS: RegExp[] = [
+  // Indeed: "New Message from Acme, LLC - Help Desk Specialist"
+  /^new message from (?<company>.+?) - (?<title>.+)$/i,
+  // Handshake: "Application sent to Acme — here's what's next"
+  /^application sent to (?<company>.+?)(?: [—–-] here's what's next)?$/i,
   // "Indeed Application: Data Analyst"
   /^indeed application: (?<title>.+)$/i,
   // "Your application for Software Engineer at Acme"
@@ -304,7 +320,7 @@ const URL_RE = /https?:\/\/[^\s)>\]]+/g
 export const JOB_URL_RE =
   /(?:linkedin\.com\/(?:comm\/)?jobs\/view|indeed\.com\/(?:rc\/clk|viewjob|pagead|m\/viewjob)|glassdoor\.com\/(?:partner\/jobListing|job-listing\/(?!api)|Job\/.*JV_))/i
 const JUNK_LINE =
-  /^(?:view job|apply|easy apply|easily apply|apply with resume.*|see (?:all|more) jobs.*|new|promoted|actively recruiting|this company is actively hiring|be an early applicant|\d+ (?:applicants|connections?|(?:company |school )?alumni).*|.*ago$|\d+[hdw]|\d+\+?d|just posted|responsive employer|urgently hiring|best place to work|top company|hiring multiple candidates|.*(?:employer|glassdoor) est\.?\)?$|[-—=_|•·*★☆\d.\s]+)$/i
+  /^(?:view job|apply|easy apply|easily apply|apply with resume.*|see (?:all|more) jobs.*|new|promoted|actively recruiting|this company is actively hiring|be an early applicant|\d+ (?:applicants|connections?|(?:company |school )?alumni).*|.*ago$|\d+[hdw]|\d+\+?d|just posted|responsive employer|urgently hiring|best place to work|top company|hiring multiple candidates|view all jobs|.*(?:employer|glassdoor) est\.?\)?$|[-—=_|•·*★☆\d.\s]+)$/i
 
 function cleanLine(l: string): string {
   return l
@@ -317,18 +333,52 @@ function cleanLine(l: string): string {
  * Job alert emails list several jobs, each as a few lines of text followed by a
  * link. We split on the job links and read the lines just before each one.
  */
+/**
+ * Handshake links are all tracking redirects, so cards are found by their
+ * meta line instead: "Company / Title / $26–36/hr • Full-Time • Parsippany, NJ (Onsite)".
+ */
+const HANDSHAKE_META = /(?:^|•\s*)(?:Full-Time|Part-Time|Internship|Contract|Temporary|Seasonal|On-Campus|Fellowship)\b.*$/i
+
+function extractHandshakeLeads(text: string): Job[] {
+  const lines = text.split('\n').map((l) => l.trim())
+  const leads: Job[] = []
+  for (let i = 0; i < lines.length; i++) {
+    if (!HANDSHAKE_META.test(lines[i]) || lines[i].length > 160) continue
+    const above = lines.slice(Math.max(0, i - 6), i).filter((l) => l && !/^https?:/.test(l) && !/^promoted$/i.test(l))
+    const [company, title] = above.slice(-2)
+    if (!title || !company) continue
+    const parts = lines[i].split('•').map((p) => p.trim())
+    const where = parts.at(-1)!.replace(/\s*\+\d+(?= \(|$)/, '') // "Carteret, NJ +1 (Hybrid)"
+    leads.push({
+      title: cleanup(title),
+      company: cleanup(company),
+      location: /full-time|part-time|internship/i.test(where) ? undefined : where,
+      pay: parsePay(lines[i]),
+      url: lines.slice(i + 1, i + 3).find((l) => /^https?:/.test(l)),
+    })
+  }
+  return leads
+}
+
 export function extractLeads(raw: RawEmail): Job[] {
   const text = withoutFooter(raw.body)
+  if (sourceOf(raw.fromDomain) === 'handshake') return extractHandshakeLeads(text)
   const glassdoor = raw.fromDomain.includes('glassdoor')
+  const linkedin = raw.fromDomain.includes('linkedin')
   const leads: Job[] = []
   const seen = new Set<string>()
   let last = 0
   for (const m of text.matchAll(URL_RE)) {
     const url = m[0]
-    const start = m.index ?? 0
-    const chunk = text.slice(last, start)
-    last = start + url.length
     if (!JOB_URL_RE.test(url)) continue
+    const start = m.index ?? 0
+    // Everything since the previous job link, minus other links such as
+    // LinkedIn's "See who Acme has hired for this role".
+    const chunk = text
+      .slice(last, start)
+      .replace(URL_RE, '')
+      .replace(/See who .{1,80} has hired for this role:?/g, '\n')
+    last = start + url.length
     const lines = chunk
       .split('\n')
       .map(cleanLine)
@@ -366,9 +416,16 @@ export function extractLeads(raw: RawEmail): Job[] {
         else if (l.length >= 60) job.description = job.description ? `${job.description} ${l}` : l
       }
     } else {
-      const [a, b] = lines.filter((l) => l.length < 120).slice(-2)
-      job.title = glassdoor ? b ?? a : a
-      job.company = b !== undefined ? (glassdoor ? a : b) : undefined
+      const short = lines.filter((l) => l.length < 120)
+      const [t, c, place] = short.slice(-3)
+      if (linkedin && place && place.length < 40 && !/\d|\$/.test(place)) {
+        // LinkedIn recommendations: "Title / Company / Warren", a town with no state.
+        Object.assign(job, { title: t, company: c, location: place })
+      } else {
+        const [a, b] = short.slice(-2)
+        job.title = glassdoor ? b ?? a : a
+        job.company = b !== undefined ? (glassdoor ? a : b) : undefined
+      }
     }
     // Pay lines are dropped as junk when they carry "(Employer est.)", so read the raw chunk too.
     job.pay ??= parsePay(chunk.split('\n').slice(-12).join('\n'))

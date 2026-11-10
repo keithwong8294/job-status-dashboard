@@ -34,7 +34,7 @@ import { CATEGORY_LABELS, type Category, type EmailRecord, type RawEmail } from 
 const POLL_MS = 2 * 60 * 1000
 const ENV_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined
 
-const SOURCE_LABELS = { linkedin: 'LinkedIn', indeed: 'Indeed', glassdoor: 'Glassdoor', direct: 'Employer' }
+const SOURCE_LABELS = { linkedin: 'LinkedIn', indeed: 'Indeed', glassdoor: 'Glassdoor', handshake: 'Handshake', direct: 'Employer' }
 
 const fmtDate = (t?: number) => (t ? new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '')
 const gmailLink = (e: EmailRecord) => `https://mail.google.com/mail/u/0/#all/${e.threadId}`
@@ -278,7 +278,7 @@ export default function App() {
               sub={afterInterview ? `${afterInterview} after an interview` : total ? `${Math.round((rejected / total) * 100)}% of applications` : ''}
               onClick={() => showGroup('rejected')}
             />
-            <Tile label="Job leads" value={leads.length} sub={`from ${counts.lead} LinkedIn, Indeed and Glassdoor emails`} />
+            <Tile label="Job leads" value={leads.length} sub={`from ${counts.lead} LinkedIn, Indeed, Glassdoor and Handshake emails`} />
           </section>
 
           <section className="card">

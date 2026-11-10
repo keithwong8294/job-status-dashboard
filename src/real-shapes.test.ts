@@ -191,3 +191,86 @@ describe('scam threads from two lookalike senders', () => {
     expect(apps[0]).toMatchObject({ company: 'Gymbrand', title: 'IT Help Desk Associate', status: 'scam' })
   })
 })
+
+describe('Handshake, Indeed and LinkedIn formats (November 2026)', () => {
+  it('reads a Handshake weekly digest', () => {
+    // As the app's HTML-to-text turns it out: every card link is the same tracking redirect.
+    const link = ' https://email.g.joinhandshake.com/c/abc'
+    const body = [
+      'Your weekly jobs round-up',
+      'New jobs just for you, sent every week.',
+      link,
+      'Acme Labs',
+      'Technical Support Specialist',
+      '$26–36/hr • Full-Time • Parsippany, NJ (Onsite)',
+      link,
+      link,
+      'Widget Co',
+      'Data Analyst',
+      'Full-Time • Remote',
+      link,
+      link,
+      'Helpful Org',
+      'Tech Setup Specialist',
+      'Promoted • $50–60K/yr • Full-Time • Carteret, NJ +1 (Hybrid)',
+      link,
+      'View more jobs',
+    ].join('\n')
+    const r = toRecord(mail('handshake@g.joinhandshake.com', 'Keith, Acme Labs sees you as a top applicant for Technical Support Specialist and more', '', body))
+    expect(r.category).toBe('lead')
+    expect(r.source).toBe('handshake')
+    expect(r.leads).toEqual([
+      expect.objectContaining({ title: 'Technical Support Specialist', company: 'Acme Labs', location: 'Parsippany, NJ (Onsite)', pay: expect.objectContaining({ minAnnual: 54080 }) }),
+      expect.objectContaining({ title: 'Data Analyst', company: 'Widget Co', location: 'Remote' }),
+      expect.objectContaining({ title: 'Tech Setup Specialist', company: 'Helpful Org', location: 'Carteret, NJ (Hybrid)', pay: expect.objectContaining({ minAnnual: 50000, maxAnnual: 60000 }) }),
+    ])
+  })
+
+  it('counts a Handshake application by company and skips recruiter messages', () => {
+    const sent = toRecord(
+      mail('handshake@notifications.joinhandshake.com', "Application sent to Acme Labs Inc. — here's what's next", 'Your application was sent to Acme Labs Inc.', 'Your application was sent to Acme Labs Inc.\nView application\nApply to similar jobs\nWidget Co\nCorporate Recruiter\n$70–80K/yr • Full-Time • McLean, VA (Onsite)'),
+    )
+    expect(sent.category).toBe('application')
+    expect(sent.job.company).toBe('Acme Labs Inc')
+    const pitch = mail('handshake@notifications.joinhandshake.com', 'Thank you for your interest in Widget!', 'Pat just messaged you about a job Hi Keith! I wanted to follow up')
+    expect(classify(pitch)).toBe('other')
+  })
+
+  it('treats an Indeed employer message as a response', () => {
+    const r = toRecord(mail('no-reply@indeed.com', 'New Message from Acme Builders, LLC - Help Desk Specialist', 'Log in to view and respond to the message'))
+    expect(r.category).toBe('response')
+    expect(r.job).toMatchObject({ company: 'Acme Builders, LLC', title: 'Help Desk Specialist' })
+  })
+
+  it('recognizes newer alert subjects', () => {
+    expect(classify(mail('donotreply@jobalert.indeed.com', 'Sales Specialist at Acme Recruiting. 9 more Teen jobs in Edison, NJ'))).toBe('lead')
+    expect(classify(mail('jobalerts-noreply@linkedin.com', 'You may be a fit for Acme’s Analyst Intern role - 119 school alumni'))).toBe('lead')
+    expect(classify(mail('messages-noreply@linkedin.com', 'View Acme jobs and your next steps'))).toBe('lead')
+  })
+
+  it('reads LinkedIn recommendations that give a bare town and "See who was hired" links', () => {
+    const body = [
+      'Recommendations based on your activity.',
+      'IT jobs',
+      'https://www.linkedin.com/comm/jobs/search-results/?keywords=intern',
+      '',
+      '2027 Technology Summer Internship Program',
+      'Acme',
+      'Warren',
+      'View job: https://www.linkedin.com/comm/jobs/view/111/?trackingId=a',
+      '',
+      '---------------------------------------------------------',
+      '',
+      'IT Intern',
+      'Widget Energy',
+      'KearnySee who Widget Energy has hired for this role: https://www.linkedin.com/comm/search/results/people/?title=IT',
+      'Apply with resume & profile',
+      'View job: https://www.linkedin.com/comm/jobs/view/222/?trackingId=b',
+    ].join('\n')
+    const r = toRecord(mail('jobs-noreply@linkedin.com', 'Acme is hiring for a IT role', '', body))
+    expect(r.leads).toEqual([
+      expect.objectContaining({ title: '2027 Technology Summer Internship Program', company: 'Acme', location: 'Warren' }),
+      expect.objectContaining({ title: 'IT Intern', company: 'Widget Energy', location: 'Kearny' }),
+    ])
+  })
+})

@@ -5,7 +5,7 @@ describe('drive estimates', () => {
   const home = locate('Princeton, NJ')!
 
   it('finds towns in the formats job boards use', () => {
-    for (const where of ['Edison, NJ', 'New York NY US', 'Hoboken, New Jersey', 'New York City Metropolitan Area', 'Hybrid in Newark, NJ', 'Woodbridge Township, NJ', 'Stamford, CT'])
+    for (const where of ['Edison, NJ', 'New York NY US', 'Hoboken, New Jersey', 'New York City Metropolitan Area', 'Hybrid in Newark, NJ', 'Woodbridge Township, NJ', 'Township of Brick, NJ', 'Stamford, CT', 'Warren'])
       expect(locate(where), where).toBeDefined()
     expect(locate('Remote')).toBeUndefined()
     expect(locate('Austin, TX')).toBeUndefined()
