@@ -213,6 +213,10 @@ export default function App() {
 
   const applications = useMemo(() => withEditedStatus(buildApplications(records), appStatus), [records, appStatus])
   const leads = useMemo(() => buildLeads(records), [records])
+  const openLeads = useMemo(() => {
+    const { place } = leadPlacer(leads, applications, leadStatus, profile)
+    return leads.filter((l) => isCounted(place(l))).length
+  }, [leads, applications, leadStatus, profile])
   const counts = useMemo(() => {
     const c = { application: 0, response: 0, rejection: 0, lead: 0, other: 0 }
     for (const r of records) c[r.category]++
@@ -292,7 +296,7 @@ export default function App() {
               sub={afterInterview ? `${afterInterview} after an interview` : total ? `${Math.round((rejected / total) * 100)}% of applications` : ''}
               onClick={() => showGroup('rejected')}
             />
-            <Tile label="Job leads" value={leads.length} sub={`from ${counts.lead} LinkedIn, Indeed, Glassdoor and Handshake emails`} />
+            <Tile label="Job leads" value={openLeads} sub={`from ${counts.lead} LinkedIn, Indeed, Glassdoor and Handshake emails`} />
           </section>
 
           <section className="card">
@@ -322,7 +326,7 @@ export default function App() {
               {(
                 [
                   ['applications', `Applications (${total})`],
-                  ['leads', `Job leads (${leads.length})`],
+                  ['leads', `Job leads (${openLeads})`],
                   ['emails', `All emails (${records.length})`],
                 ] as const
               ).map(([id, label]) => (
@@ -826,6 +830,24 @@ function ProfileCard({ profile, onSave }: { profile: Profile; onSave: (p: Profil
 type LeadView = 'recommended' | 'new' | LeadStatus | 'expired' | 'unrelated' | 'all'
 
 const titleKey = (t?: string) => (t ? titleGroup(t).toLowerCase() : '')
+
+/** Which list each lead belongs in: what you marked, then applied elsewhere, then expired, then unrelated. */
+function leadPlacer(leads: Lead[], applications: Application[], statuses: Map<string, { status: LeadStatus }>, profile: Profile) {
+  const viaApps = leadsInApplications(leads, applications, titleKey)
+  const hiddenFields = profile.hiddenFields ?? DEFAULT_HIDDEN_FIELDS
+  const place = (l: Lead): LeadView => {
+    const s = statuses.get(l.key)?.status
+    if (s) return s
+    if (viaApps.has(l.key)) return 'applied'
+    if (isExpired(l)) return 'expired'
+    if (hiddenFields.includes(fieldOf(l.title))) return 'unrelated'
+    return 'new'
+  }
+  return { viaApps, place }
+}
+
+/** Leads that still count: everything except cleared ones and unrelated fields. */
+const isCounted = (v: LeadView) => v !== 'cleared' && v !== 'unrelated'
 type LeadOrder = 'match' | 'date' | 'title' | 'field' | 'location'
 type LeadGrouping = 'title' | 'field' | 'location'
 const GROUPINGS: LeadGrouping[] = ['title', 'field', 'location']
@@ -907,21 +929,11 @@ function LeadsTable({
   }
   const scores = useMemo(() => new Map(leads.map((l) => [l.key, scoreLead(l, profile)])), [leads, profile])
   const matching = leads.filter((l) => matches(l, l.description ?? l.email.body, filters))
-  const viaApps = useMemo(() => leadsInApplications(leads, applications, titleKey), [leads, applications])
-  const hiddenFields = profile.hiddenFields ?? DEFAULT_HIDDEN_FIELDS
-  /** Which list a lead belongs in: what you marked, then applied elsewhere, then expired, then unrelated. */
-  const placeOfLead = (l: Lead): LeadView => {
-    const s = statuses.get(l.key)?.status
-    if (s) return s
-    if (viaApps.has(l.key)) return 'applied'
-    if (isExpired(l)) return 'expired'
-    if (hiddenFields.includes(fieldOf(l.title))) return 'unrelated'
-    return 'new'
-  }
+  const { viaApps, place: placeOfLead } = useMemo(() => leadPlacer(leads, applications, statuses, profile), [leads, applications, statuses, profile])
   const inView = (l: Lead, v: LeadView) => {
     const at = placeOfLead(l)
     if (v === 'recommended') return at === 'new' && scored && isRecommended(scores.get(l.key)!)
-    if (v === 'all') return at !== 'cleared'
+    if (v === 'all') return isCounted(at)
     return at === v
   }
   const count = (v: LeadView) => matching.filter((l) => inView(l, v)).length
