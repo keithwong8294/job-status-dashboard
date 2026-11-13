@@ -274,3 +274,32 @@ describe('Handshake, Indeed and LinkedIn formats (November 2026)', () => {
     ])
   })
 })
+
+describe('Handshake applications', () => {
+  const sent = (company: string, minute: number, similar: string) =>
+    toRecord({
+      ...mail(
+        'handshake@notifications.joinhandshake.com',
+        `Application sent to ${company} — here's what's next`,
+        `Handshake KW Your application was sent to ${company} View application Apply to similar jobs ${similar}`,
+        `Your application was sent to ${company}\nView application\nApply to similar jobs\n${similar}`,
+      ),
+      id: company,
+      threadId: company,
+      date: Date.UTC(2026, 10, 12, 15, minute),
+    })
+
+  it('keeps applications to different companies apart, even minutes apart', () => {
+    const apps = buildApplications([
+      sent('Acme Labs', 0, 'Widget Co\nExecutive Assistant\n$80–90K/yr • Full-Time • New York City, NY (Hybrid)'),
+      sent('Helpful Org', 2, 'Other Co\nJunior AI Developer\n$18–25/hr • Part-Time • Addison, TX (Onsite)'),
+      sent('Bigco', 5, 'Third Co\nData Analyst\nFull-Time • New York, NY (Onsite)'),
+    ])
+    expect(apps.map((a) => a.company).sort()).toEqual(['Acme Labs', 'Bigco', 'Helpful Org'])
+  })
+
+  it('ignores pay and location from the similar jobs section', () => {
+    const r = sent('Acme Labs', 0, 'Widget Co\nExecutive Assistant\n$80–90K/yr • Full-Time • New York City, NY (Hybrid)')
+    expect(r.job).toEqual({ company: 'Acme Labs' })
+  })
+})

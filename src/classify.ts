@@ -299,7 +299,9 @@ export function extractJob(raw: RawEmail, source: Source): Job {
       break
     }
   }
-  const body = withoutFooter(`${raw.snippet}\n${raw.body.slice(0, 4000)}`)
+  // Board confirmations end with other jobs ("Apply to similar jobs"), whose details aren't this one's.
+  const own = (s: string) => s.split(/\b(?:apply to similar jobs|similar jobs|jobs you might like|recommended jobs|more jobs for you)\b/i)[0]
+  const body = withoutFooter(`${own(raw.snippet)}\n${own(raw.body.slice(0, 4000))}`)
   for (const re of BODY_COMPANY) {
     if (job.company) break
     job.company = cleanCompany(body.match(re)?.groups?.company)

@@ -115,7 +115,8 @@ export function buildApplications(records: EmailRecord[]): Application[] {
     let app =
       byThread.get(r.threadId) ??
       (title !== undefined ? groups.get(`${companyKey}|${normalize(title)}`) : latestAt.get(companyKey)) ??
-      (recent && r.date - recent.date < 2 * 3600e3 && (!title || !recent.app.title || title === recent.app.title)
+      // Only an employer's own address: job boards send every application from one sender.
+      (recent && r.source === 'direct' && r.date - recent.date < 2 * 3600e3 && (!title || !recent.app.title || title === recent.app.title)
         ? recent.app
         : undefined)
     // A new confirmation for a job we already closed out is a re-application.
