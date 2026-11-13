@@ -524,3 +524,41 @@ button.tile-button:hover {
 .bad-hint {
   color: var(--bad);
 }
+.th-label {
+  display: block;
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 8px;
+  white-space: nowrap;
+}
+.group-actions {
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+tr.group-row td {
+  padding: 0;
+  background: var(--hover);
+  border-bottom: 1px solid var(--grid);
+}
+tr.group-row:hover td {
+  background: var(--border);
+}
+button.group-toggle {
+  background: none;
+  color: var(--text);
+  width: 100%;
+  text-align: left;
+  padding: 10px 8px;
+  font-weight: 600;
+}
+.caret {
+  display: inline-block;
+  width: 12px;
+  color: var(--muted);
+}
+@media (max-width: 720px) {
+  tr.group-row td::before {
+    content: none;
+  }
+}

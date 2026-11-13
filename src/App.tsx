@@ -28,6 +28,7 @@ import {
 } from './model'
 import { DEFAULT_PROFILE, hasProfile, isRecommended, resumeFamilies, resumeSkills, scoreLead, type Match, type Profile } from './recommend'
 import { driveFrom, formatDrive, locate } from './distance'
+import { fieldOf, placeOf, titleGroup } from './fields'
 import { pdfText } from './pdf'
 import { syncGmail } from './sync'
 import { CATEGORY_LABELS, type Category, type EmailRecord, type RawEmail } from './types'
@@ -438,40 +439,89 @@ function SortableTable<T extends { key: string }>({
   initial,
   detail,
   empty,
+  sortable = true,
+  groups,
 }: {
   items: T[]
   columns: Column<T>[]
   initial: { key: string; dir: SortDir }
   detail?: (t: T) => ReactNode
   empty: string
+  /** False when the order comes from a menu instead of the column headers. */
+  sortable?: boolean
+  /** Splits the rows under collapsible headings, in the order this returns them. */
+  groups?: (rows: T[]) => { name: string; note?: string; rows: T[] }[]
 }) {
   const [sort, setSort] = useState(initial)
   const [open, setOpen] = useState<string>()
+  const [openGroups, setOpenGroups] = useState(new Set<string>())
   const col = columns.find((c) => c.key === sort.key) ?? columns[0]
   const rows = sortBy(items, col.get, sort.dir)
   if (!rows.length) return <p className="muted empty">{empty}</p>
+  const renderRow = (r: T) => (
+    <Row key={r.key} item={r} columns={columns} open={open === r.key} onToggle={detail ? () => setOpen(open === r.key ? undefined : r.key) : undefined} detail={detail} />
+  )
+  const grouped = groups?.(rows)
+  const toggleGroup = (name: string) => {
+    const next = new Set(openGroups)
+    if (next.has(name)) next.delete(name)
+    else next.add(name)
+    setOpenGroups(next)
+  }
   return (
     <div className="table-wrap">
+      {grouped && (
+        <p className="group-actions">
+          <button className="link" onClick={() => setOpenGroups(new Set(grouped.map((g) => g.name)))}>
+            Expand all
+          </button>{' '}
+          ·{' '}
+          <button className="link" onClick={() => setOpenGroups(new Set())}>
+            Collapse all
+          </button>
+        </p>
+      )}
       <table>
         <thead>
           <tr>
-            {columns.map((c) => (
-              <th key={c.key} aria-sort={sort.key === c.key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
-                <button
-                  onClick={() => setSort({ key: c.key, dir: sort.key === c.key && sort.dir === 'desc' ? 'asc' : 'desc' })}
-                >
-                  {c.label}
-                  <span className="arrow">{sort.key === c.key ? (sort.dir === 'asc' ? '▲' : '▼') : ''}</span>
-                </button>
-              </th>
-            ))}
+            {columns.map((c) =>
+              sortable ? (
+                <th key={c.key} aria-sort={sort.key === c.key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                  <button
+                    onClick={() => setSort({ key: c.key, dir: sort.key === c.key && sort.dir === 'desc' ? 'asc' : 'desc' })}
+                  >
+                    {c.label}
+                    <span className="arrow">{sort.key === c.key ? (sort.dir === 'asc' ? '▲' : '▼') : ''}</span>
+                  </button>
+                </th>
+              ) : (
+                <th key={c.key}>
+                  <span className="th-label">{c.label}</span>
+                </th>
+              ),
+            )}
           </tr>
         </thead>
-        <tbody>
-          {rows.map((r) => (
-            <Row key={r.key} item={r} columns={columns} open={open === r.key} onToggle={detail ? () => setOpen(open === r.key ? undefined : r.key) : undefined} detail={detail} />
-          ))}
-        </tbody>
+        {grouped ? (
+          grouped.map((g) => (
+            <tbody key={g.name}>
+              <tr className="group-row" onClick={() => toggleGroup(g.name)}>
+                <td colSpan={columns.length}>
+                  <button className="group-toggle" aria-expanded={openGroups.has(g.name)}>
+                    <span className="caret">{openGroups.has(g.name) ? '▾' : '▸'}</span> {g.name}{' '}
+                    <span className="muted">
+                      {g.rows.length}
+                      {g.note ? ` · ${g.note}` : ''}
+                    </span>
+                  </button>
+                </td>
+              </tr>
+              {openGroups.has(g.name) && g.rows.map(renderRow)}
+            </tbody>
+          ))
+        ) : (
+          <tbody>{rows.map(renderRow)}</tbody>
+        )}
       </table>
     </div>
   )
@@ -727,6 +777,33 @@ function ProfileCard({ profile, onSave }: { profile: Profile; onSave: (p: Profil
 }
 
 type LeadView = 'recommended' | 'new' | LeadStatus | 'expired' | 'all'
+type LeadOrder = 'match' | 'date' | 'title' | 'field' | 'location'
+
+const LEAD_ORDERS: Record<LeadOrder, string> = {
+  match: 'Best match',
+  date: 'Newest',
+  title: 'Job title',
+  field: 'Field',
+  location: 'Location',
+}
+
+/** Biggest groups first, catch-alls last. */
+function bySize<T>(map: Map<string, T[]>, last: string) {
+  return [...map]
+    .map(([name, rows]) => ({ name, rows }))
+    .sort((a, b) => Number(a.name === last) - Number(b.name === last) || b.rows.length - a.rows.length || a.name.localeCompare(b.name))
+}
+
+function groupRows<T>(rows: T[], keyOf: (t: T) => string) {
+  const map = new Map<string, T[]>()
+  for (const r of rows) {
+    const k = keyOf(r)
+    const list = map.get(k)
+    if (list) list.push(r)
+    else map.set(k, [r])
+  }
+  return map
+}
 
 function LeadsTable({
   leads,
@@ -744,6 +821,25 @@ function LeadsTable({
   const home = locate(profile.home)
   const scored = hasProfile(profile)
   const [view, setView] = useState<LeadView>(scored ? 'recommended' : 'new')
+  const [order, setOrderState] = useState<LeadOrder>(() => (readStored('leadOrder') as LeadOrder | undefined) ?? (scored ? 'match' : 'date'))
+  const setOrder = (o: LeadOrder) => {
+    setOrderState(o)
+    writeStored('leadOrder', o)
+  }
+  const rowOrder = order === 'date' || (order === 'match' && !scored) || !scored ? 'date' : 'match'
+  function groups<T extends Lead>(rows: T[]) {
+    if (order === 'title') return bySize(groupRows(rows, (l) => titleGroup(l.title)), 'No title')
+    if (order === 'field') return bySize(groupRows(rows, (l) => fieldOf(l.title)), 'Other')
+    if (order !== 'location') return []
+    // Remote first, then nearest by drive time when a home town is set, else the most jobs.
+    return [...groupRows(rows, (l) => placeOf(l.location))]
+      .map(([name, list]) => {
+        const to = home && name !== 'Remote' ? locate(name) : undefined
+        const drive = home && to ? driveFrom(home, to) : undefined
+        return { name, rows: list, note: drive && formatDrive(drive), rank: name === 'Remote' ? -1 : name === 'Location not listed' ? 1e9 : drive ? drive.minutes : 1e6 - list.length }
+      })
+      .sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name))
+  }
   const scores = useMemo(() => new Map(leads.map((l) => [l.key, scoreLead(l, profile)])), [leads, profile])
   const matching = leads.filter((l) => matches(l, l.description ?? l.email.body, filters))
   const inView = (l: Lead, v: LeadView) => {
@@ -775,6 +871,18 @@ function LeadsTable({
             <option value="all">All ({count('all')})</option>
           </select>
         </label>
+        <label className="narrow">
+          Sort by
+          <select value={order} onChange={(e) => setOrder(e.target.value as LeadOrder)}>
+            {(Object.keys(LEAD_ORDERS) as LeadOrder[])
+              .filter((o) => o !== 'match' || scored)
+              .map((o) => (
+                <option key={o} value={o}>
+                  {['title', 'field', 'location'].includes(o) ? `Group by ${LEAD_ORDERS[o].toLowerCase()}` : LEAD_ORDERS[o]}
+                </option>
+              ))}
+          </select>
+        </label>
         <p className="muted hint">
           {autofillAvailable()
             ? 'Apply opens the posting, fills in the Easy Apply form for you, and stops at Submit. '
@@ -783,9 +891,11 @@ function LeadsTable({
         </p>
       </div>
       <SortableTable
-        key={scored ? 'scored' : 'plain'}
+        key={`${scored ? 'scored' : 'plain'}-${order}`}
         items={items}
-        initial={{ key: scored ? 'match' : 'date', dir: 'desc' }}
+        initial={{ key: rowOrder, dir: 'desc' }}
+        sortable={false}
+        groups={['title', 'field', 'location'].includes(order) ? groups : undefined}
         empty={view === 'new' || view === 'recommended' ? 'No new job leads match these filters.' : 'No job leads here yet.'}
         columns={[
           ...(scored
