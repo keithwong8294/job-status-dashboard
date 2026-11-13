@@ -12,7 +12,11 @@ describe('lead categories', () => {
     expect(fieldOf('Customer Service Representative')).toBe('Customer service')
     expect(fieldOf('Executive Assistant')).toBe('Admin & office')
     expect(fieldOf('Seasonal Package Handler')).toBe('Warehouse, retail & food')
-    expect(fieldOf('Pharmacy Intern')).toBe('Healthcare')
+    expect(fieldOf('Pharmacy Intern')).toBe('Healthcare & animal care')
+    expect(fieldOf('Vet Tech')).toBe('Healthcare & animal care')
+    expect(fieldOf('Behavior Technician (RBT)')).toBe('Healthcare & animal care')
+    expect(fieldOf('IT Support Specialist - Medical Office')).toBe('IT support')
+    expect(fieldOf('Clinical Data Analyst')).toBe('Data & analytics')
     expect(fieldOf('Lifeguard')).toBe('Other')
   })
 

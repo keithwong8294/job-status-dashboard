@@ -6,9 +6,14 @@ const family = (name: string) => ROLE_FAMILIES.find((f) => f.name === name)!.tit
 const FIELDS: [string, RegExp][] = [
   ['Cybersecurity', /\b(?:cyber|security analyst|information security|infosec|soc analyst|security engineer)\b/i],
   ['IT support', family('IT support')],
-  ['IT support', /\b(?:it|information technology|technology|computer|desktop|tech)\b/i],
   ['Systems & networks', family('systems & networks')],
   ['Data & analytics', family('data & analytics')],
+  // Before the broad tech words, so "Vet Tech" and "Behavior Technician" don't read as IT.
+  [
+    'Healthcare & animal care',
+    /\b(?:vet|veterinar\w*|animal|kennel|groomer|behaviou?r(?:al)? (?:tech\w*|therap\w*|specialist|interventionist)|rbt|aba|nurs\w*|medical|pharmac\w*|clinical|patient|dental|caregiver|phlebotom\w*|therap\w*|home health|health aide|cna|emt|paramedic|optometr\w*|radiolog\w*|sonograph\w*)\b/i,
+  ],
+  ['IT support', /\b(?:it|information technology|technology|computer|desktop|tech)\b/i],
   ['Data & analytics', /\b(?:data|analytics|analyst)\b/i],
   ['Software & engineering', family('software')],
   ['Software & engineering', /\b(?:engineer(?:ing)?|developer|ai|machine learning)\b/i],
@@ -22,10 +27,14 @@ const FIELDS: [string, RegExp][] = [
   ['Admin & office', /\b(?:admin\w*|office|receptionist|front desk|executive assistant|data entry|clerk|secretary|coordinator|assistant)\b/i],
   ['Finance & accounting', /\b(?:accountant|accounting|finance|financial|bookkeep\w*|audit\w*|payroll|tax|billing|bank\w*)\b/i],
   ['Marketing & design', /\b(?:marketing|social media|content|graphic|design\w*|brand|communications|creative|copywriter)\b/i],
-  ['Healthcare', /\b(?:nurse|nursing|medical|pharmac\w*|clinical|health|patient|dental|therap\w*|behavior)\b/i],
   ['Education', /\b(?:teacher|tutor|instructor|education\w*|school|teaching|academic)\b/i],
   ['Warehouse, retail & food', /\b(?:warehouse|package|stock|retail|cashier|store|barista|server|cook|kitchen|driver|delivery|sort\w*|handler|grocery)\b/i],
 ]
+
+export const FIELD_NAMES = [...new Set(FIELDS.map(([name]) => name)), 'Other']
+
+/** Fields hidden from new leads unless you choose otherwise: far from IT, data and office work. */
+export const DEFAULT_HIDDEN_FIELDS = ['Healthcare & animal care', 'Warehouse, retail & food', 'Sales & business development']
 
 /** The broad field a job title belongs to, e.g. "Help Desk Technician" → "IT support". */
 export function fieldOf(title?: string): string {

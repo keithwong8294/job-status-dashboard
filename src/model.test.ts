@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildApplications, inGroup, isExpired, weekly, withEditedStatus, type Application, type Lead, type Status } from './model'
+import { buildApplications, inGroup, isExpired, leadsInApplications, weekly, withEditedStatus, type Application, type Lead, type Status } from './model'
 import type { Category, EmailRecord } from './types'
 
 const day = 864e5
@@ -69,5 +69,23 @@ describe('expired leads', () => {
     const now = Date.now()
     expect(isExpired({ date: now - 31 * day } as Lead, now)).toBe(true)
     expect(isExpired({ date: now - 5 * day } as Lead, now)).toBe(false)
+  })
+})
+
+describe('leads already applied to', () => {
+  const lead = (title: string, company: string) => ({ key: `${title}|${company}`, title, company }) as Lead
+  const applied = (company: string, title?: string) => ({ ...app('applied', []), company, title })
+  const key = (t?: string) => (t ?? '').toLowerCase().replace(/\b(?:junior|i+)\b|\(.*\)/g, '').trim()
+
+  it('matches by company and title, ignoring level', () => {
+    const leads = [lead('Junior Data Analyst (Hybrid)', 'Acme, Inc.'), lead('Office Manager', 'Acme Inc'), lead('Data Analyst', 'Widget')]
+    const found = leadsInApplications(leads, [applied('Acme Inc', 'Data Analyst')], key)
+    expect([...found.keys()]).toEqual(['Junior Data Analyst (Hybrid)|Acme, Inc.'])
+  })
+
+  it('matches an application without a title only when the company has one lead', () => {
+    const leads = [lead('Analyst', 'Solo Co'), lead('Analyst', 'Big Co'), lead('Engineer', 'Big Co')]
+    const found = leadsInApplications(leads, [applied('Solo Co'), applied('Big Co')], key)
+    expect([...found.keys()]).toEqual(['Analyst|Solo Co'])
   })
 })

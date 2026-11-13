@@ -8,6 +8,8 @@ export interface Profile {
   targetTitles: string
   minPay: number
   includeRemote: boolean
+  /** Fields whose new leads stay out of view (see fields.ts); unset means the defaults. */
+  hiddenFields?: string[]
   /** Town to estimate drive times from, e.g. "Princeton, NJ". */
   home: string
 }

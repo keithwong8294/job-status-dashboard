@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { toRecord } from './classify'
 import { autofillAvailable, openApplication } from './autofill'
-import { clearAll, closeAccount, getMeta, loadAll, openAccount, setAppStatus, setLeadStatus, setMeta, setOverride, type LeadStatus } from './db'
+import { clearAll, closeAccount, getMeta, loadAll, openAccount, setAppStatus, setLeadStatus, setLeadStatuses, setMeta, setOverride, type LeadStatus } from './db'
 import { demoEmails } from './demo'
 import { accountEmail, AuthExpired, isSignedIn, setRateLimitListener, signIn, signOut, START_DATE } from './gmail'
 import {
@@ -13,6 +13,7 @@ import {
   inGroup,
   isExpired,
   LEAD_EXPIRY_DAYS,
+  leadsInApplications,
   matches,
   sortBy,
   STATUS_GROUPS,
@@ -28,7 +29,7 @@ import {
 } from './model'
 import { DEFAULT_PROFILE, hasProfile, isRecommended, resumeFamilies, resumeSkills, scoreLead, type Match, type Profile } from './recommend'
 import { driveFrom, formatDrive, locate } from './distance'
-import { fieldOf, placeOf, titleGroup } from './fields'
+import { DEFAULT_HIDDEN_FIELDS, FIELD_NAMES, fieldOf, placeOf, titleGroup } from './fields'
 import { pdfText } from './pdf'
 import { syncGmail } from './sync'
 import { CATEGORY_LABELS, type Category, type EmailRecord, type RawEmail } from './types'
@@ -186,6 +187,17 @@ export default function App() {
     if (!demo) await setLeadStatus(key, status, at)
   }
 
+  async function markLeads(keys: string[], status: LeadStatus | undefined) {
+    const next = new Map(leadStatus)
+    const at = Date.now()
+    for (const key of keys) {
+      if (status) next.set(key, { status, at })
+      else next.delete(key)
+    }
+    setLeadStatusState(next)
+    if (!demo) await setLeadStatuses(keys, status, at)
+  }
+
   async function editAppStatus(key: string, status: Status | undefined) {
     const next = new Map(appStatus)
     if (status) next.set(key, status)
@@ -324,7 +336,7 @@ export default function App() {
             {tab === 'leads' && (
               <>
                 <ProfileCard profile={profile} onSave={saveProfile} />
-                <LeadsTable key={hasProfile(profile) ? "scored" : "plain"} leads={leads} filters={filters} statuses={leadStatus} onMark={markLead} profile={profile} />
+                <LeadsTable key={hasProfile(profile) ? "scored" : "plain"} leads={leads} filters={filters} statuses={leadStatus} onMark={markLead} onMarkMany={markLeads} applications={applications} profile={profile} />
               </>
             )}
             {tab === 'emails' && <EmailsTable records={records} onRelabel={relabel} />}
@@ -764,6 +776,22 @@ function ProfileCard({ profile, onSave }: { profile: Profile; onSave: (p: Profil
           Include remote jobs
         </label>
       </div>
+      <fieldset className="field-picks">
+        <legend>Hide new leads in these fields</legend>
+        {FIELD_NAMES.map((f) => {
+          const hidden = draft.hiddenFields ?? DEFAULT_HIDDEN_FIELDS
+          return (
+            <label key={f} className="check">
+              <input
+                type="checkbox"
+                checked={hidden.includes(f)}
+                onChange={(e) => setDraft({ ...draft, hiddenFields: e.target.checked ? [...hidden, f] : hidden.filter((x) => x !== f) })}
+              />
+              {f}
+            </label>
+          )
+        })}
+      </fieldset>
       <div className="actions">
         <button type="submit">Save</button>
         {hasProfile(profile) && (
@@ -776,7 +804,9 @@ function ProfileCard({ profile, onSave }: { profile: Profile; onSave: (p: Profil
   )
 }
 
-type LeadView = 'recommended' | 'new' | LeadStatus | 'expired' | 'all'
+type LeadView = 'recommended' | 'new' | LeadStatus | 'expired' | 'unrelated' | 'all'
+
+const titleKey = (t?: string) => (t ? titleGroup(t).toLowerCase() : '')
 type LeadOrder = 'match' | 'date' | 'title' | 'field' | 'location'
 
 const LEAD_ORDERS: Record<LeadOrder, string> = {
@@ -810,12 +840,16 @@ function LeadsTable({
   filters,
   statuses,
   onMark,
+  onMarkMany,
+  applications,
   profile,
 }: {
   leads: Lead[]
   filters: Filters
   statuses: Map<string, { status: LeadStatus; at: number }>
   onMark: (key: string, status: LeadStatus | undefined) => void
+  onMarkMany: (keys: string[], status: LeadStatus | undefined) => void
+  applications: Application[]
   profile: Profile
 }) {
   const home = locate(profile.home)
@@ -842,15 +876,37 @@ function LeadsTable({
   }
   const scores = useMemo(() => new Map(leads.map((l) => [l.key, scoreLead(l, profile)])), [leads, profile])
   const matching = leads.filter((l) => matches(l, l.description ?? l.email.body, filters))
+  const viaApps = useMemo(() => leadsInApplications(leads, applications, titleKey), [leads, applications])
+  const hiddenFields = profile.hiddenFields ?? DEFAULT_HIDDEN_FIELDS
+  /** Which list a lead belongs in: what you marked, then applied elsewhere, then expired, then unrelated. */
+  const placeOfLead = (l: Lead): LeadView => {
+    const s = statuses.get(l.key)?.status
+    if (s) return s
+    if (viaApps.has(l.key)) return 'applied'
+    if (isExpired(l)) return 'expired'
+    if (hiddenFields.includes(fieldOf(l.title))) return 'unrelated'
+    return 'new'
+  }
   const inView = (l: Lead, v: LeadView) => {
-    const status = statuses.get(l.key)?.status ?? 'new'
-    // Expired only hides leads you haven't acted on; applied and dismissed stay in their lists.
-    if (status === 'new' && isExpired(l)) return v === 'expired' || v === 'all'
-    if (v === 'recommended') return status === 'new' && scored && isRecommended(scores.get(l.key)!)
-    return v === 'all' || status === v
+    const at = placeOfLead(l)
+    if (v === 'recommended') return at === 'new' && scored && isRecommended(scores.get(l.key)!)
+    if (v === 'all') return at !== 'cleared'
+    return at === v
   }
   const count = (v: LeadView) => matching.filter((l) => inView(l, v)).length
   const items = matching.filter((l) => inView(l, view)).map((l) => ({ ...l, match: scores.get(l.key)! }))
+
+  // Every lead you could clear, ignoring the search filters, so the button does what it says.
+  const clearable = leads.filter((l) => ['expired', 'applied'].includes(placeOfLead(l)))
+  function clearOld() {
+    if (!clearable.length) return
+    if (!confirm(`Clear ${clearable.length} expired or applied job leads? You can bring them back from the Cleared list.`)) return
+    onMarkMany(
+      clearable.map((l) => l.key),
+      'cleared',
+    )
+  }
+  const cleared = leads.filter((l) => statuses.get(l.key)?.status === 'cleared')
 
   function apply(l: Lead) {
     if (l.url) openApplication(l.url, l)
@@ -868,6 +924,8 @@ function LeadsTable({
             <option value="applied">Applied ({count('applied')})</option>
             <option value="dismissed">Dismissed ({count('dismissed')})</option>
             <option value="expired">Likely expired ({count('expired')})</option>
+            <option value="unrelated">Unrelated fields ({count('unrelated')})</option>
+            <option value="cleared">Cleared ({count('cleared')})</option>
             <option value="all">All ({count('all')})</option>
           </select>
         </label>
@@ -887,8 +945,20 @@ function LeadsTable({
           {autofillAvailable()
             ? 'Apply opens the posting, fills in the Easy Apply form for you, and stops at Submit. '
             : 'Apply opens the posting. '}
-          It also marks the job as applied. Jobs no alert has listed in {LEAD_EXPIRY_DAYS} days count as likely expired.
+          It also marks the job as applied, and so does applying through the link yourself once the application shows up in Applications. Jobs no alert has listed in{' '}
+          {LEAD_EXPIRY_DAYS} days count as likely expired. Fields you hide in your resume settings go under Unrelated fields.
         </p>
+        <div className="clear-actions">
+          {view === 'cleared' ? (
+            <button className="small ghost" disabled={!cleared.length} onClick={() => onMarkMany(cleared.map((l) => l.key), undefined)}>
+              Restore all cleared ({cleared.length})
+            </button>
+          ) : (
+            <button className="small ghost" disabled={!clearable.length} onClick={clearOld}>
+              Clear expired and applied ({clearable.length})
+            </button>
+          )}
+        </div>
       </div>
       <SortableTable
         key={`${scored ? 'scored' : 'plain'}-${order}`}
@@ -945,11 +1015,24 @@ function LeadsTable({
             get: (l) => statuses.get(l.key)?.at,
             render: (l) => {
               const s = statuses.get(l.key)
+              const app = !s && viaApps.get(l.key)
+              if (app) {
+                return (
+                  <span className="lead-actions">
+                    <span className="pill responded" title={`Matches your application to ${app.company}${app.title ? ` for ${app.title}` : ''}`}>
+                      In Applications
+                    </span>
+                    <button className="link" onClick={() => onMark(l.key, 'cleared')}>
+                      Clear
+                    </button>
+                  </span>
+                )
+              }
               if (s) {
                 return (
                   <span className="lead-actions">
                     <span className={`pill ${s.status === 'applied' ? 'responded' : 'muted-pill'}`}>
-                      {s.status === 'applied' ? `Applied ${fmtDate(s.at)}` : 'Dismissed'}
+                      {s.status === 'applied' ? `Applied ${fmtDate(s.at)}` : s.status === 'cleared' ? 'Cleared' : 'Dismissed'}
                     </span>
                     <button className="link" onClick={() => onMark(l.key, undefined)}>
                       Undo

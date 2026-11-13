@@ -177,6 +177,31 @@ export const LEAD_EXPIRY_DAYS = 30
 
 export const isExpired = (lead: Lead, now = Date.now()) => now - lead.date > LEAD_EXPIRY_DAYS * 864e5
 
+/**
+ * Leads you already applied to some other way, such as by opening the posting
+ * yourself: same company as an application and the same kind of title. An
+ * application with no title (Handshake's) matches only when that company has a
+ * single lead, so one application doesn't hide every opening at a big company.
+ */
+export function leadsInApplications(leads: Lead[], apps: Application[], titleKey: (t?: string) => string): Map<string, Application> {
+  const byCompany = new Map<string, Lead[]>()
+  for (const l of leads) {
+    const c = normalize(l.company ?? '')
+    if (c) byCompany.set(c, [...(byCompany.get(c) ?? []), l])
+  }
+  const found = new Map<string, Application>()
+  for (const a of apps) {
+    if (a.status === 'removed' || a.status === 'scam') continue
+    const atCompany = byCompany.get(normalize(a.company)) ?? []
+    if (!a.title) {
+      if (atCompany.length === 1) found.set(atCompany[0].key, a)
+      continue
+    }
+    for (const l of atCompany) if (titleKey(l.title) === titleKey(a.title)) found.set(l.key, a)
+  }
+  return found
+}
+
 export interface Filters {
   title: string
   location: string

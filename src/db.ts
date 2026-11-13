@@ -14,7 +14,7 @@ interface Schema extends DBSchema {
   appStatus: { key: string; value: { key: string; status: Status } }
 }
 
-export type LeadStatus = 'applied' | 'dismissed'
+export type LeadStatus = 'applied' | 'dismissed' | 'cleared'
 
 const open = (name: string) =>
   openDB<Schema>(name, 3, {
@@ -100,6 +100,12 @@ export async function setLeadStatus(key: string, status: LeadStatus | undefined,
   const d = await db()
   if (status) await d.put('leadStatus', { key, status, at })
   else await d.delete('leadStatus', key)
+}
+
+/** Saves one status for many leads at once, e.g. clearing out expired ones. */
+export async function setLeadStatuses(keys: string[], status: LeadStatus | undefined, at: number) {
+  const tx = (await db()).transaction('leadStatus', 'readwrite')
+  await Promise.all([...keys.map((key) => (status ? tx.store.put({ key, status, at }) : tx.store.delete(key))), tx.done])
 }
 
 export async function setAppStatus(key: string, status: Status | undefined) {
