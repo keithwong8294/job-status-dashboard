@@ -541,6 +541,13 @@ tr.group-row td {
   background: var(--hover);
   border-bottom: 1px solid var(--grid);
 }
+tr.group-row.sub td {
+  background: none;
+}
+tr.group-row.sub button.group-toggle {
+  padding-left: 28px;
+  font-weight: 500;
+}
 tr.group-row:hover td {
   background: var(--border);
 }
