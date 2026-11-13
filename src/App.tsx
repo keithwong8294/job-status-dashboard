@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { toRecord } from './classify'
+import { autofillAvailable, openApplication } from './autofill'
 import { clearAll, closeAccount, getMeta, loadAll, openAccount, setAppStatus, setLeadStatus, setMeta, setOverride, type LeadStatus } from './db'
 import { demoEmails } from './demo'
 import { accountEmail, AuthExpired, isSignedIn, setRateLimitListener, signIn, signOut, START_DATE } from './gmail'
@@ -756,7 +757,7 @@ function LeadsTable({
   const items = matching.filter((l) => inView(l, view)).map((l) => ({ ...l, match: scores.get(l.key)! }))
 
   function apply(l: Lead) {
-    if (l.url) window.open(l.url, '_blank', 'noopener')
+    if (l.url) openApplication(l.url, l)
     onMark(l.key, 'applied')
   }
 
@@ -775,8 +776,10 @@ function LeadsTable({
           </select>
         </label>
         <p className="muted hint">
-          Apply opens the posting and marks the job as applied. Jobs no alert has listed in {LEAD_EXPIRY_DAYS} days count as
-          likely expired.
+          {autofillAvailable()
+            ? 'Apply opens the posting, fills in the Easy Apply form for you, and stops at Submit. '
+            : 'Apply opens the posting. '}
+          It also marks the job as applied. Jobs no alert has listed in {LEAD_EXPIRY_DAYS} days count as likely expired.
         </p>
       </div>
       <SortableTable

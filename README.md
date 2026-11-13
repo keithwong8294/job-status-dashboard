@@ -69,6 +69,18 @@ so later visits only download what's new. Your data appears only after you sign 
 
 Click **Try with sample data** to see the dashboard without connecting Gmail.
 
+## Autofilling applications (optional)
+
+On the **Job leads** tab, **Apply** opens the posting in a new tab. If the separate **Job Autofill**
+browser extension is installed, Apply hands the job to it instead. The extension opens the posting,
+clicks Easy Apply (LinkedIn), Apply now (Indeed) or quick apply (Handshake), fills in each step from
+saved answers, attaches the resume and a cover letter when asked, and stops with **Submit** outlined.
+It never clicks Submit. Jobs that apply on the company's own site are left alone.
+
+The extension and its answers live on the owner's computer, not in this repo, because they hold
+personal details. The dashboard only posts the job's title, company, location, pay, blurb and link
+to the extension (see [`src/autofill.ts`](src/autofill.ts)). Without the extension nothing changes.
+
 ## Hosting
 
 Every push to `main` runs the tests, builds, and publishes to GitHub Pages
