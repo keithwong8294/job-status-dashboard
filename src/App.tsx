@@ -1060,23 +1060,19 @@ function leadPlacer(leads: Lead[], applications: Application[], statuses: Map<st
 
 /** Leads that still count: everything except cleared ones and unrelated fields. */
 const isCounted = (v: LeadView) => v !== 'cleared' && v !== 'unrelated'
-type LeadOrder = 'match' | 'date' | 'pay' | 'title' | 'field' | 'location'
+/** How rows are ordered, inside groups too. */
+type LeadSort = 'match' | 'date' | 'pay'
 type LeadGrouping = 'title' | 'field' | 'location'
-const GROUPINGS: LeadGrouping[] = ['title', 'field', 'location']
-const isGrouping = (o: string): o is LeadGrouping => (GROUPINGS as string[]).includes(o)
-/** Orders that can run either way, and what each direction is called. */
-const DIRECTIONS: Partial<Record<LeadOrder, Record<SortDir, string>>> = {
+const GROUPINGS: LeadGrouping[] = ['location', 'field', 'title']
+const isGrouping = (o?: string): o is LeadGrouping => (GROUPINGS as string[]).includes(o ?? '')
+const isSort = (o?: string): o is LeadSort => o === 'match' || o === 'date' || o === 'pay'
+
+const SORT_LABELS: Record<LeadSort, string> = { match: 'Best Match', date: 'Date Received', pay: 'Pay' }
+const GROUP_LABELS: Record<LeadGrouping, string> = { location: 'Location', field: 'Field', title: 'Job Title' }
+/** Sorts that can run either way, and what each direction is called. */
+const DIRECTIONS: Partial<Record<LeadSort, Record<SortDir, string>>> = {
   date: { desc: 'Newest First', asc: 'Oldest First' },
   pay: { desc: 'Highest First', asc: 'Lowest First' },
-}
-
-const LEAD_ORDERS: Record<LeadOrder, string> = {
-  match: 'Best Match',
-  date: 'Date Received',
-  pay: 'Pay',
-  title: 'Job Title',
-  field: 'Field',
-  location: 'Location',
 }
 
 /** Biggest groups first, catch-alls last. */
@@ -1121,10 +1117,23 @@ function LeadsTable({
   const home = locate(profile.home)
   const scored = hasProfile(profile)
   const [view, setView] = useState<LeadView>(scored ? 'recommended' : 'new')
-  const [order, setOrderState] = useState<LeadOrder>(() => (readStored('leadOrder') as LeadOrder | undefined) ?? (scored ? 'match' : 'date'))
-  const setOrder = (o: LeadOrder) => {
-    setOrderState(o)
-    if (!demo) writeStored('leadOrder', o)
+  // Grouping and sorting used to share one menu ("leadOrder"); a saved choice there still counts.
+  const oldOrder = readStored('leadOrder')
+  const [group, setGroupState] = useState<LeadGrouping | ''>(() => {
+    const saved = readStored('leadGroup') ?? oldOrder
+    return isGrouping(saved) ? saved : ''
+  })
+  const setGroup = (g: LeadGrouping | '') => {
+    setGroupState(g)
+    if (!demo) writeStored('leadGroup', g || 'none')
+  }
+  const [sortKey, setSortState] = useState<LeadSort>(() => {
+    const saved = readStored('leadSort') ?? oldOrder
+    return isSort(saved) ? saved : 'match'
+  })
+  const setSort = (o: LeadSort) => {
+    setSortState(o)
+    if (!demo) writeStored('leadSort', o)
   }
   const [thenBy, setThenState] = useState<LeadGrouping | ''>(() => (readStored('leadThen') as LeadGrouping | undefined) ?? '')
   const setThen = (o: LeadGrouping | '') => {
@@ -1136,14 +1145,15 @@ function LeadsTable({
     setDirState(d)
     if (!demo) writeStored('leadDir', d)
   }
-  const second = isGrouping(order) && thenBy && thenBy !== order ? thenBy : undefined
-  const rowOrder = order === 'pay' ? 'pay' : order === 'date' || !scored ? 'date' : 'match'
-  // Pay and date run whichever way you pick; everything else lists best or newest first.
-  const rowDir: SortDir = DIRECTIONS[order] ? dir : 'desc'
+  const second = group && thenBy && thenBy !== group ? thenBy : undefined
+  // Best match needs a resume; without one, newest first.
+  const rowOrder: LeadSort = sortKey === 'match' && !scored ? 'date' : sortKey
+  // Pay and date run whichever way you pick; best match always lists the best first.
+  const rowDir: SortDir = DIRECTIONS[rowOrder] ? dir : 'desc'
   function groups<T extends Lead>(rows: T[]): RowGroup<T>[] {
-    return groupBy(order, rows).map((g) => (second ? { ...g, sub: groupBy(second, g.rows) } : g))
+    return group ? groupBy(group, rows).map((g) => (second ? { ...g, sub: groupBy(second, g.rows) } : g)) : []
   }
-  function groupBy<T extends Lead>(order: LeadOrder, rows: T[]): RowGroup<T>[] {
+  function groupBy<T extends Lead>(order: LeadGrouping, rows: T[]): RowGroup<T>[] {
     if (order === 'title') return bySize(groupRows(rows, (l) => titleGroup(l.title)), 'No title')
     if (order === 'field') return bySize(groupRows(rows, (l) => fieldLabel(fieldOf(l.title))), 'Other')
     if (order !== 'location') return []
@@ -1199,29 +1209,37 @@ function LeadsTable({
           <option value="cleared">Cleared ({count('cleared')})</option>
           <option value="all">All ({count('all')})</option>
         </select>
-        <select value={order} onChange={(e) => setOrder(e.target.value as LeadOrder)} aria-label="Sort by">
-          {(Object.keys(LEAD_ORDERS) as LeadOrder[])
+        <select value={group} onChange={(e) => setGroup(e.target.value as LeadGrouping | '')} aria-label="Group by">
+          <option value="">No Grouping</option>
+          {GROUPINGS.map((o) => (
+            <option key={o} value={o}>
+              Group by {GROUP_LABELS[o]}
+            </option>
+          ))}
+        </select>
+        {group && (
+          <select value={second ?? ''} onChange={(e) => setThen(e.target.value as LeadGrouping | '')} aria-label="Then group by">
+            <option value="">No Subgroups</option>
+            {GROUPINGS.filter((o) => o !== group).map((o) => (
+              <option key={o} value={o}>
+                Then by {GROUP_LABELS[o]}
+              </option>
+            ))}
+          </select>
+        )}
+        <select value={rowOrder} onChange={(e) => setSort(e.target.value as LeadSort)} aria-label="Sort by" title={group ? 'Sorts the jobs inside each group' : undefined}>
+          {(Object.keys(SORT_LABELS) as LeadSort[])
             .filter((o) => o !== 'match' || scored)
             .map((o) => (
               <option key={o} value={o}>
-                {isGrouping(o) ? `Group by ${LEAD_ORDERS[o]}` : `Sort by ${LEAD_ORDERS[o]}`}
+                Sort by {SORT_LABELS[o]}
               </option>
             ))}
         </select>
-        {DIRECTIONS[order] && (
+        {DIRECTIONS[rowOrder] && (
           <select value={dir} onChange={(e) => setDir(e.target.value as SortDir)} aria-label="Sort direction">
-            <option value="desc">{DIRECTIONS[order]!.desc}</option>
-            <option value="asc">{DIRECTIONS[order]!.asc}</option>
-          </select>
-        )}
-        {isGrouping(order) && (
-          <select value={second ?? ''} onChange={(e) => setThen(e.target.value as LeadGrouping | '')} aria-label="Then group by">
-            <option value="">No Subgroups</option>
-            {GROUPINGS.filter((o) => o !== order).map((o) => (
-              <option key={o} value={o}>
-                Then by {LEAD_ORDERS[o]}
-              </option>
-            ))}
+            <option value="desc">{DIRECTIONS[rowOrder]!.desc}</option>
+            <option value="asc">{DIRECTIONS[rowOrder]!.asc}</option>
           </select>
         )}
       </FilterBar>
@@ -1245,11 +1263,11 @@ function LeadsTable({
         )}
       </p>
       <SortableTable
-        key={`${scored ? 'scored' : 'plain'}-${order}-${second ?? ''}-${rowDir}`}
+        key={`${scored ? 'scored' : 'plain'}-${group}-${second ?? ''}-${rowOrder}-${rowDir}`}
         items={items}
         initial={{ key: rowOrder, dir: rowDir }}
         sortable={false}
-        groups={isGrouping(order) ? groups : undefined}
+        groups={group ? groups : undefined}
         empty={view === 'new' || view === 'recommended' ? 'No new job leads match these filters.' : 'No job leads here yet.'}
         columns={[
           ...(scored
