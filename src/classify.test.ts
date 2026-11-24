@@ -115,7 +115,7 @@ describe('job details', () => {
 describe('sample data', () => {
   it('classifies every made-up email the way it was written', () => {
     const records = demoEmails(Date.UTC(2026, 9, 22)).map((e) => toRecord(e))
-    expect(records.filter((r) => r.category === 'other')).toHaveLength(1)
+    expect(records.filter((r) => r.category === 'other')).toHaveLength(2) // a LinkedIn notice and a bank offer
     expect(records.filter((r) => r.category === 'lead').every((r) => r.leads.length >= 2)).toBe(true)
     const apps = buildApplications(records)
     expect(apps.length).toBeGreaterThan(5)

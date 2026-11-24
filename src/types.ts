@@ -4,8 +4,8 @@ export const CATEGORY_LABELS: Record<Category, string> = {
   application: 'Application',
   response: 'Response',
   rejection: 'Rejection',
-  lead: 'Job lead',
-  other: 'Not job-related',
+  lead: 'Job Lead',
+  other: 'Not Job-Related',
 }
 
 export type Source = 'linkedin' | 'indeed' | 'glassdoor' | 'handshake' | 'direct'

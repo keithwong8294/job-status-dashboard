@@ -67,7 +67,10 @@ Leave the tab open for live updates. Your saved emails stay in that browser betw
 so later visits only download what's new. Your data appears only after you sign in, and
 **Disconnect** offers to delete it, which is worth doing on a shared computer.
 
-Click **Try with sample data** to see the dashboard without connecting Gmail.
+Click **Try with sample data** to see the dashboard without connecting Gmail. It loads a made-up job search
+(fictional companies, people and links) that exercises every feature. Nothing in it touches Gmail or the data saved
+in your browser, and changes you make while trying it are thrown away when you leave. To link straight to it, for a
+portfolio say, use **https://keithwong8294.github.io/job-status-dashboard/?demo**.
 
 ## Autofilling applications (optional)
 
