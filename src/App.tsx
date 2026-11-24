@@ -633,6 +633,14 @@ function FilterBar({ filters, onChange, children }: { filters: Filters; onChange
 /** Rows shown before "Show all", so a long list doesn't swamp the page. */
 const PAGE_SIZE = 15
 
+interface SortSpec {
+  key: string
+  dir: SortDir
+}
+
+/** Numbers and dates start biggest or newest first; names, and distance, start A to Z or nearest. */
+const defaultDir = (key: string): SortDir => (['match', 'date', 'pay', 'applied', 'updated'].includes(key) ? 'desc' : 'asc')
+
 interface Column<T> {
   key: string
   label: string
@@ -663,10 +671,11 @@ function SortableTable<T extends { key: string }>({
 }: {
   items: T[]
   columns: Column<T>[]
-  initial: { key: string; dir: SortDir }
-  /** When set, a menu outside the table owns the sort and header clicks report to onSort. */
-  sort?: { key: string; dir: SortDir }
-  onSort?: (s: { key: string; dir: SortDir }) => void
+  /** The order used while no header is switched on. */
+  initial: SortSpec
+  /** When set, the parent keeps the sort (to remember it) and header clicks report to onSort. */
+  sort?: SortSpec[]
+  onSort?: (s: SortSpec[]) => void
   /** Sorts that have no column of their own, such as a lead's field. */
   extraSorts?: Record<string, (t: T) => string | number | undefined>
   /** Which way a header sorts on its first click; newest/biggest first unless this says otherwise. */
@@ -678,14 +687,26 @@ function SortableTable<T extends { key: string }>({
   /** Splits the rows under collapsible headings, in the order this returns them. */
   groups?: (rows: T[]) => RowGroup<T>[]
 }) {
-  const [own, setOwn] = useState(initial)
-  const sort = controlled ?? own
+  const [own, setOwn] = useState<SortSpec[]>([])
+  const chosen = (controlled ?? own).filter((s) => columns.some((c) => c.key === s.key) || extraSorts?.[s.key])
   const setSort = onSort ?? setOwn
   const [open, setOpen] = useState<string>()
   const [openGroups, setOpenGroups] = useState(new Set<string>())
   const [limit, setLimit] = useState(PAGE_SIZE)
-  const get = extraSorts?.[sort.key] ?? (columns.find((c) => c.key === sort.key) ?? columns[0]).get
-  const rows = sortBy(items, get, sort.dir)
+  // Headers you switch on stack in the order you clicked them; with none on, the table's default order applies.
+  const active = chosen.length ? chosen : [initial]
+  const getter = (key: string) => extraSorts?.[key] ?? (columns.find((c) => c.key === key) ?? columns[0]).get
+  // Sorting is stable, so sorting by the last key first leaves the first key in charge and the others as tie-breakers.
+  const rows = active.reduceRight((acc, s) => sortBy(acc, getter(s.key), s.dir), items)
+  /** Each click on a header: on (its usual direction), then reversed, then off. */
+  const cycle = (key: string) => {
+    const first = firstDir?.(key) ?? 'desc'
+    const at = chosen.findIndex((s) => s.key === key)
+    if (at < 0) setSort([...chosen, { key, dir: first }])
+    else if (chosen[at].dir === first) setSort(chosen.map((s, i) => (i === at ? { key, dir: first === 'asc' ? 'desc' : 'asc' } : s)))
+    else setSort(chosen.filter((_, i) => i !== at))
+  }
+  const labelOf = (key: string) => columns.find((c) => c.key === key)?.label ?? key
   if (!rows.length) return <p className="muted empty">{empty}</p>
   const renderRow = (r: T) => (
     <Row key={r.key} item={r} columns={columns} open={open === r.key} onToggle={detail ? () => setOpen(open === r.key ? undefined : r.key) : undefined} detail={detail} />
@@ -699,6 +720,21 @@ function SortableTable<T extends { key: string }>({
   }
   return (
     <div className="table-wrap">
+      {chosen.length > 0 && (
+        <p className="sort-summary">
+          Sorted by{' '}
+          {chosen.map((s, i) => (
+            <span key={s.key}>
+              {i > 0 && ', then '}
+              <strong>{labelOf(s.key)}</strong> {s.dir === 'asc' ? '▲' : '▼'}
+            </span>
+          ))}
+          .{' '}
+          <button className="link" onClick={() => setSort([])}>
+            Reset Sort
+          </button>
+        </p>
+      )}
       {grouped && (
         <p className="group-actions">
           <button className="link" onClick={() => setOpenGroups(new Set(grouped.flatMap((g) => [g.name, ...(g.sub ?? []).map((s) => `${g.name}\u0000${s.name}`)])))}>
@@ -715,17 +751,23 @@ function SortableTable<T extends { key: string }>({
           <tr>
             {columns.map((c) =>
               sortable && c.label ? (
-                <th key={c.key} aria-sort={sort.key === c.key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
-                  <button
-                    onClick={() => {
-                      const first = firstDir?.(c.key) ?? 'desc'
-                      setSort({ key: c.key, dir: sort.key === c.key ? (sort.dir === 'asc' ? 'desc' : 'asc') : first })
-                    }}
-                  >
-                    {c.label}
-                    <span className="arrow">{sort.key === c.key ? (sort.dir === 'asc' ? '▲' : '▼') : ''}</span>
-                  </button>
-                </th>
+                (() => {
+                  const at = active.findIndex((s) => s.key === c.key)
+                  const on = at >= 0 ? active[at] : undefined
+                  return (
+                    <th key={c.key} aria-sort={on && at === 0 ? (on.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                      <button
+                        className={on && chosen.length ? 'on' : undefined}
+                        onClick={() => cycle(c.key)}
+                        title={!on || !chosen.length ? `Sort by ${c.label}` : on.dir === (firstDir?.(c.key) ?? 'desc') ? 'Click to reverse' : 'Click to stop sorting by this'}
+                      >
+                        {c.label}
+                        <span className="arrow">{on ? (on.dir === 'asc' ? '▲' : '▼') : ''}</span>
+                        {on && chosen.length > 1 && <span className="sort-rank">{at + 1}</span>}
+                      </button>
+                    </th>
+                  )
+                })()
               ) : (
                 <th key={c.key}>
                   <span className="th-label">{c.label}</span>
@@ -835,6 +877,7 @@ function ApplicationsTable({
         key={group}
         items={items}
         initial={{ key: 'updated', dir: 'desc' }}
+        firstDir={defaultDir}
         empty="No applications match these filters."
         columns={[
           { key: 'company', label: 'Company', get: (a) => a.company, render: (a) => <span className="strong">{a.company}</span> },
@@ -1120,14 +1163,12 @@ const isCounted = (v: LeadView) => v !== 'cleared' && v !== 'unrelated'
 /** How rows are ordered, inside groups too. */
 /** Keys the job-lead column headers sort by. */
 const LEAD_SORTS = ['match', 'title', 'company', 'location', 'pay', 'source', 'date'] as const
-type LeadSort = (typeof LEAD_SORTS)[number]
 type LeadGrouping = 'title' | 'field' | 'location'
 const GROUPINGS: LeadGrouping[] = ['location', 'field', 'title']
 const isGrouping = (o?: string): o is LeadGrouping => (GROUPINGS as string[]).includes(o ?? '')
-const isSort = (o?: string): o is LeadSort => (LEAD_SORTS as readonly string[]).includes(o ?? '')
+const isSortList = (x: unknown): x is SortSpec[] =>
+  Array.isArray(x) && x.every((s) => s && (LEAD_SORTS as readonly string[]).includes(s.key) && (s.dir === 'asc' || s.dir === 'desc'))
 const GROUP_LABELS: Record<LeadGrouping, string> = { location: 'Location', field: 'Field', title: 'Job Title' }
-/** Numbers start biggest or newest first; names, and distance, start A to Z or nearest. */
-const defaultDir = (key: string): SortDir => (key === 'match' || key === 'date' || key === 'pay' ? 'desc' : 'asc')
 
 /** Biggest groups first, catch-alls last. */
 function bySize<T>(map: Map<string, T[]>, last: string) {
@@ -1181,29 +1222,26 @@ function LeadsTable({
     setGroupState(g)
     if (!demo) writeStored('leadGroup', g || 'none')
   }
-  const [sortKey, setSortState] = useState<LeadSort>(() => {
-    const saved = readStored('leadSort') ?? oldOrder
-    return isSort(saved) ? saved : 'match'
+  const [sorts, setSortsState] = useState<SortSpec[]>(() => {
+    try {
+      const saved = JSON.parse(readStored('leadSorts') ?? '[]')
+      return isSortList(saved) ? saved : []
+    } catch {
+      return []
+    }
   })
-  const setSort = (o: LeadSort, d: SortDir = defaultDir(o)) => {
-    setSortState(o)
-    setDir(d)
-    if (!demo) writeStored('leadSort', o)
+  const setSorts = (s: SortSpec[]) => {
+    setSortsState(s)
+    if (!demo) writeStored('leadSorts', s.length ? JSON.stringify(s) : undefined)
   }
   const [thenBy, setThenState] = useState<LeadGrouping | ''>(() => (readStored('leadThen') as LeadGrouping | undefined) ?? '')
   const setThen = (o: LeadGrouping | '') => {
     setThenState(o)
     if (!demo) writeStored('leadThen', o)
   }
-  const [dir, setDirState] = useState<SortDir>(() => (readStored('leadDir') === 'asc' ? 'asc' : 'desc'))
-  const setDir = (d: SortDir) => {
-    setDirState(d)
-    if (!demo) writeStored('leadDir', d)
-  }
   const second = group && thenBy && thenBy !== group ? thenBy : undefined
-  // Best match needs a resume; without one, newest first.
-  const rowOrder: LeadSort = sortKey === 'match' && !scored ? 'date' : sortKey
-  const rowDir = dir
+  // With no header on: best match first, or newest first without a resume.
+  const defaultSort: SortSpec = { key: scored ? 'match' : 'date', dir: 'desc' }
   /** Sort values for keys whose column shows something else, or that have no column. */
   const extraSorts: Record<string, (l: Lead) => string | number | undefined> = {
     // With a home town: remote first, then by drive time; places we can't find sink to the bottom.
@@ -1298,7 +1336,7 @@ function LeadsTable({
           : autofillAvailable()
             ? 'Apply opens the posting, fills in the Easy Apply form, and stops at Submit. '
             : 'Apply opens the posting and marks it applied. '}
-        Click a column header to sort, and click again to reverse it. Jobs no alert has listed in {LEAD_EXPIRY_DAYS} days count as likely expired.{' '}
+        Click column headers to sort; click more than one to sort by several. Each click goes ▼, ▲, then off. Jobs no alert has listed in {LEAD_EXPIRY_DAYS} days count as likely expired.{' '}
         {view === 'cleared' ? (
           <button className="link" disabled={!cleared.length} onClick={() => onMarkMany(cleared.map((l) => l.key), undefined)}>
             Restore All Cleared ({cleared.length})
@@ -1314,9 +1352,9 @@ function LeadsTable({
       <SortableTable
         key={`${scored ? 'scored' : 'plain'}-${group}-${second ?? ''}`}
         items={items}
-        initial={{ key: rowOrder, dir: rowDir }}
-        sort={{ key: rowOrder, dir: rowDir }}
-        onSort={({ key, dir }) => isSort(key) && setSort(key, dir)}
+        initial={defaultSort}
+        sort={sorts}
+        onSort={setSorts}
         extraSorts={extraSorts}
         firstDir={defaultDir}
         groups={group ? groups : undefined}
@@ -1437,6 +1475,7 @@ function EmailsTable({ records, onRelabel, demo }: { records: EmailRecord[]; onR
       <SortableTable
         items={items}
         initial={{ key: 'date', dir: 'desc' }}
+        firstDir={defaultDir}
         empty="No emails of this type."
         columns={[
           { key: 'date', label: 'Date', get: (r) => r.date, render: (r) => fmtDate(r.date) },
