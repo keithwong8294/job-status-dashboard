@@ -270,11 +270,14 @@ export default function App() {
     <div className="page">
       <header className="top">
         <div>
-          <h1>Job search dashboard</h1>
+          <h1 className="brand">
+            <Logo />
+            Job Search Dashboard
+          </h1>
           {!showLanding && (
             <p className="muted status-line">
               {demo
-                ? 'Sample data'
+                ? 'Sample Data'
                 : connected
                   ? `Live from ${account}. ${busy || (lastSync ? `Last checked ${new Date(lastSync).toLocaleTimeString()}.` : '')}`
                   : hasData
@@ -283,12 +286,11 @@ export default function App() {
             </p>
           )}
         </div>
-        {!showLanding && (
-          <div className="actions">
-            {connected ? (
+        <div className="actions">
+          {showLanding ? null : connected ? (
               <>
                 <button className="ghost" onClick={sync} disabled={!!busy}>
-                  Check now
+                  Check Now
                 </button>
                 <button className="ghost" onClick={disconnect}>
                   Disconnect
@@ -296,15 +298,15 @@ export default function App() {
               </>
             ) : demo ? (
               <button className="ghost" onClick={() => setDemo(false)}>
-                Exit sample data
+                Exit Sample Data
               </button>
             ) : (
               <button onClick={connect} disabled={!clientId}>
                 Reconnect Gmail
               </button>
             )}
-          </div>
-        )}
+          <ThemeToggle />
+        </div>
       </header>
 
       {demo && (
@@ -334,7 +336,7 @@ export default function App() {
               sub={`${groupCount('applied')} waiting to hear back${scams ? ` · ${scams} ${scams === 1 ? 'scam' : 'scams'} left out` : ''}`}
               onClick={() => showGroup('all')}
             />
-            <Stat label="Action needed" value={action} sub="replies waiting on you" tone="warn" onClick={() => showGroup('action')} />
+            <Stat label="Action Needed" value={action} sub="replies waiting on you" tone="warn" onClick={() => showGroup('action')} />
             <Stat label="Interviews" value={interviews} sub={`${offers} ${offers === 1 ? 'offer' : 'offers'}`} tone="good" onClick={() => showGroup('interviews')} />
             <Stat
               label="Rejections"
@@ -343,7 +345,7 @@ export default function App() {
               onClick={() => showGroup('rejected')}
             />
             <Stat
-              label="Open job leads"
+              label="Open Job Leads"
               value={openLeads}
               sub={`from ${counts.lead} job board emails`}
               onClick={() => {
@@ -353,9 +355,9 @@ export default function App() {
             />
           </section>
 
-          <section className="section">
+          <section className="section panel">
             <div className="section-head">
-              <h2>Weekly activity</h2>
+              <h2>Weekly Activity</h2>
               <ul className="legend" aria-hidden="true">
                 <li>
                   <i style={{ background: 'var(--series-1)' }} />
@@ -363,7 +365,7 @@ export default function App() {
                 </li>
                 <li>
                   <i style={{ background: 'var(--series-3)' }} />
-                  Heard back
+                  Heard Back
                 </li>
                 <li>
                   <i style={{ background: 'var(--series-2)' }} />
@@ -383,7 +385,7 @@ export default function App() {
                     labelFormatter={(w) => `Week of ${w}`}
                   />
                   <Bar dataKey="application" name="Applied" stackId="a" fill="var(--series-1)" />
-                  <Bar dataKey="response" name="Heard back" stackId="a" fill="var(--series-3)" />
+                  <Bar dataKey="response" name="Heard Back" stackId="a" fill="var(--series-3)" />
                   <Bar dataKey="rejection" name="Rejected" stackId="a" fill="var(--series-2)" radius={[3, 3, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
@@ -395,8 +397,8 @@ export default function App() {
               {(
                 [
                   ['applications', 'Applications', total],
-                  ['leads', 'Job leads', openLeads],
-                  ['emails', 'All emails', records.length],
+                  ['leads', 'Job Leads', openLeads],
+                  ['emails', 'All Emails', records.length],
                 ] as const
               ).map(([id, label, n]) => (
                 <button key={id} role="tab" aria-selected={tab === id} className={tab === id ? 'tab on' : 'tab'} onClick={() => setTab(id)}>
@@ -448,6 +450,58 @@ export default function App() {
   )
 }
 
+/** The app's mark: a rising bar chart in a rounded square. */
+function Logo() {
+  return (
+    <svg className="logo" viewBox="0 0 32 32" width="28" height="28" aria-hidden="true">
+      <rect width="32" height="32" rx="8" fill="var(--accent)" />
+      <rect x="8" y="17" width="4" height="7" rx="1" fill="var(--accent-ink)" opacity="0.7" />
+      <rect x="14" y="12" width="4" height="12" rx="1" fill="var(--accent-ink)" opacity="0.85" />
+      <rect x="20" y="8" width="4" height="16" rx="1" fill="var(--accent-ink)" />
+    </svg>
+  )
+}
+
+type Theme = 'light' | 'dark'
+const systemTheme = (): Theme => (window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+
+/** Light or dark, remembered in this browser; follows the system until you pick one. */
+function ThemeToggle() {
+  const [theme, setTheme] = useState<Theme>(() => {
+    const saved = readStored('theme')
+    return saved === 'light' || saved === 'dark' ? saved : systemTheme()
+  })
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme
+  }, [theme])
+  const next: Theme = theme === 'dark' ? 'light' : 'dark'
+  return (
+    <button
+      className="ghost icon"
+      onClick={() => {
+        setTheme(next)
+        writeStored('theme', next)
+      }}
+      aria-label={`Switch to ${next} theme`}
+      title={`Switch to ${next} theme`}
+    >
+      {theme === 'dark' ? (
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="4" />
+          <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+        </svg>
+      ) : (
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
+        </svg>
+      )}
+    </button>
+  )
+}
+
+/** Field names are stored in sentence case ("IT support"); shown in title case. */
+const fieldLabel = (f: string) => f.replace(/\b([a-z])([a-z]*)/g, (w, a: string, b: string) => (/^(?:and|or|of|the|for)$/.test(w) ? w : a.toUpperCase() + b))
+
 function Landing({
   canConnect,
   returning,
@@ -471,7 +525,7 @@ function Landing({
       </p>
       <div className="actions">
         <button className="big" onClick={onDemo}>
-          Try with sample data
+          Try with Sample Data
         </button>
         <button className="big ghost" onClick={onConnect} disabled={!canConnect}>
           {returning ? 'Reconnect Gmail' : 'Connect Gmail'}
@@ -483,15 +537,15 @@ function Landing({
       </p>
       <ul className="features">
         <li>
-          <strong>Status at a glance</strong>
+          <strong>Status at a Glance</strong>
           <span>Applied, waiting, interviewing, rejected, and likely scams, all from the emails themselves.</span>
         </li>
         <li>
-          <strong>Leads worth your time</strong>
+          <strong>Leads Worth Your Time</strong>
           <span>Job alerts split into single listings, scored on title, pay, location and experience.</span>
         </li>
         <li>
-          <strong>Sort and filter</strong>
+          <strong>Sort and Filter</strong>
           <span>By job title, location, pay and responsibilities, with drive times from home.</span>
         </li>
       </ul>
@@ -514,7 +568,7 @@ function Setup({ onSave }: { onSave: (id: string) => void }) {
   const [value, setValue] = useState('')
   return (
     <section className="card setup">
-      <h2>One-time setup</h2>
+      <h2>One-Time Setup</h2>
       <p>
         Paste the OAuth client ID you created in Google Cloud Console. It ends in <code>.apps.googleusercontent.com</code>.
         The README has the steps.
@@ -542,10 +596,10 @@ function FilterBar({ filters, onChange, children }: { filters: Filters; onChange
     <div className="toolbar">
       <div className="toolbar-row">
         {children}
-        <input className="search" value={filters.title} onChange={(e) => set({ title: e.target.value })} placeholder="Job title" aria-label="Filter by job title" />
+        <input className="search" value={filters.title} onChange={(e) => set({ title: e.target.value })} placeholder="Job Title" aria-label="Filter by job title" />
         <input className="search" value={filters.location} onChange={(e) => set({ location: e.target.value })} placeholder="Location" aria-label="Filter by location" />
         <button className={more || extra ? 'chip on' : 'chip'} onClick={() => setMore(!more)} aria-expanded={more}>
-          More filters{extra ? ` (${extra})` : ''}
+          More Filters{extra ? ` (${extra})` : ''}
         </button>
         {active && (
           <button className="link" onClick={() => onChange(EMPTY_FILTERS)}>
@@ -556,10 +610,10 @@ function FilterBar({ filters, onChange, children }: { filters: Filters; onChange
       {more && (
         <div className="toolbar-row">
           <select value={filters.minPay} onChange={(e) => set({ minPay: Number(e.target.value) })} aria-label="Minimum pay">
-            <option value={0}>Any pay</option>
+            <option value={0}>Any Pay</option>
             {[50, 60, 70, 80, 90, 100, 120, 150].map((k) => (
               <option key={k} value={k * 1000}>
-                ${k}K+ a year
+                ${k}K+ per Year
               </option>
             ))}
           </select>
@@ -567,7 +621,7 @@ function FilterBar({ filters, onChange, children }: { filters: Filters; onChange
             className="search wide"
             value={filters.responsibilities}
             onChange={(e) => set({ responsibilities: e.target.value })}
-            placeholder="Responsibilities include, e.g. sql python"
+            placeholder="Responsibilities, e.g. SQL Python"
             aria-label="Responsibilities include"
           />
         </div>
@@ -635,11 +689,11 @@ function SortableTable<T extends { key: string }>({
       {grouped && (
         <p className="group-actions">
           <button className="link" onClick={() => setOpenGroups(new Set(grouped.flatMap((g) => [g.name, ...(g.sub ?? []).map((s) => `${g.name}\u0000${s.name}`)])))}>
-            Expand all
+            Expand All
           </button>{' '}
           ·{' '}
           <button className="link" onClick={() => setOpenGroups(new Set())}>
-            Collapse all
+            Collapse All
           </button>
         </p>
       )}
@@ -699,7 +753,7 @@ function SortableTable<T extends { key: string }>({
       {!grouped && rows.length > limit && (
         <p className="more-rows">
           <button className="ghost small" onClick={() => setLimit(rows.length)}>
-            Show all {rows.length}
+            Show All {rows.length}
           </button>
         </p>
       )}
@@ -768,7 +822,7 @@ function ApplicationsTable({
         empty="No applications match these filters."
         columns={[
           { key: 'company', label: 'Company', get: (a) => a.company, render: (a) => <span className="strong">{a.company}</span> },
-          { key: 'title', label: 'Job title', get: (a) => a.title },
+          { key: 'title', label: 'Job Title', get: (a) => a.title },
           { key: 'location', label: 'Location', get: (a) => a.location },
           { key: 'pay', label: 'Pay', get: (a) => a.pay?.minAnnual, render: (a) => <span className="nowrap">{formatPay(a.pay)}</span> },
           {
@@ -827,7 +881,7 @@ function ApplicationsTable({
             </ul>
             <p className="detail-actions">
               <button className="link" onClick={() => onEdit(a.key, a.status === 'removed' ? undefined : 'removed')}>
-                {a.status === 'removed' ? 'Restore this application' : 'Remove from counts'}
+                {a.status === 'removed' ? 'Restore Application' : 'Remove from Counts'}
               </button>
             </p>
           </>
@@ -897,7 +951,7 @@ function ProfileCard({ profile, onSave, demo }: { profile: Profile; onSave: (p: 
       </p>
       <div className="resume-upload">
         <label className="button ghost">
-          Upload resume (PDF or .txt)
+          Upload Resume (PDF or TXT)
           <input
             type="file"
             accept="application/pdf,.pdf,.txt,text/plain"
@@ -920,7 +974,7 @@ function ProfileCard({ profile, onSave, demo }: { profile: Profile; onSave: (p: 
         {reading && <span className="muted">{reading}</span>}
       </div>
       <label>
-        Resume text (filled in from the upload, or paste it)
+        Resume Text
         <textarea rows={5} value={draft.resume} onChange={(e) => setDraft({ ...draft, resume: e.target.value })} />
       </label>
       {skills.length > 0 && <p className="muted hint">Skills found: {skills.join(', ')}</p>}
@@ -931,7 +985,7 @@ function ProfileCard({ profile, onSave, demo }: { profile: Profile; onSave: (p: 
       )}
       <div className="filters">
         <label className="wide">
-          Job titles you want (comma separated)
+          Target Job Titles (Comma Separated)
           <input
             value={draft.targetTitles}
             onChange={(e) => setDraft({ ...draft, targetTitles: e.target.value })}
@@ -939,7 +993,7 @@ function ProfileCard({ profile, onSave, demo }: { profile: Profile; onSave: (p: 
           />
         </label>
         <label className="narrow">
-          Minimum pay per year
+          Minimum Pay per Year
           <input
             type="number"
             step={5000}
@@ -948,17 +1002,17 @@ function ProfileCard({ profile, onSave, demo }: { profile: Profile; onSave: (p: 
           />
         </label>
         <label className="narrow">
-          Home town, for drive times
+          Home Town (for Drive Times)
           <input value={draft.home} onChange={(e) => setDraft({ ...draft, home: e.target.value })} placeholder="e.g. Princeton, NJ" />
           {draft.home.trim() && !locate(draft.home) && <span className="bad-hint">Town not found. Try "Town, ST".</span>}
         </label>
         <label className="check">
           <input type="checkbox" checked={draft.includeRemote} onChange={(e) => setDraft({ ...draft, includeRemote: e.target.checked })} />
-          Include remote jobs
+          Include Remote Jobs
         </label>
       </div>
       <fieldset className="field-picks">
-        <legend>Hide new leads in these fields</legend>
+        <legend>Hide New Leads in These Fields</legend>
         {FIELD_NAMES.map((f) => {
           const hidden = draft.hiddenFields ?? DEFAULT_HIDDEN_FIELDS
           return (
@@ -968,7 +1022,7 @@ function ProfileCard({ profile, onSave, demo }: { profile: Profile; onSave: (p: 
                 checked={hidden.includes(f)}
                 onChange={(e) => setDraft({ ...draft, hiddenFields: e.target.checked ? [...hidden, f] : hidden.filter((x) => x !== f) })}
               />
-              {f}
+              {fieldLabel(f)}
             </label>
           )
         })}
@@ -1012,15 +1066,15 @@ const GROUPINGS: LeadGrouping[] = ['title', 'field', 'location']
 const isGrouping = (o: string): o is LeadGrouping => (GROUPINGS as string[]).includes(o)
 /** Orders that can run either way, and what each direction is called. */
 const DIRECTIONS: Partial<Record<LeadOrder, Record<SortDir, string>>> = {
-  date: { desc: 'Newest first', asc: 'Oldest first' },
-  pay: { desc: 'Highest first', asc: 'Lowest first' },
+  date: { desc: 'Newest First', asc: 'Oldest First' },
+  pay: { desc: 'Highest First', asc: 'Lowest First' },
 }
 
 const LEAD_ORDERS: Record<LeadOrder, string> = {
-  match: 'Best match',
-  date: 'Date received',
+  match: 'Best Match',
+  date: 'Date Received',
   pay: 'Pay',
-  title: 'Job title',
+  title: 'Job Title',
   field: 'Field',
   location: 'Location',
 }
@@ -1091,7 +1145,7 @@ function LeadsTable({
   }
   function groupBy<T extends Lead>(order: LeadOrder, rows: T[]): RowGroup<T>[] {
     if (order === 'title') return bySize(groupRows(rows, (l) => titleGroup(l.title)), 'No title')
-    if (order === 'field') return bySize(groupRows(rows, (l) => fieldOf(l.title)), 'Other')
+    if (order === 'field') return bySize(groupRows(rows, (l) => fieldLabel(fieldOf(l.title))), 'Other')
     if (order !== 'location') return []
     // Remote first, then nearest by drive time when a home town is set, else the most jobs.
     return [...groupRows(rows, (l) => placeOf(l.location))]
@@ -1140,8 +1194,8 @@ function LeadsTable({
           <option value="new">New ({count('new')})</option>
           <option value="applied">Applied ({count('applied')})</option>
           <option value="dismissed">Dismissed ({count('dismissed')})</option>
-          <option value="expired">Likely expired ({count('expired')})</option>
-          <option value="unrelated">Unrelated fields ({count('unrelated')})</option>
+          <option value="expired">Likely Expired ({count('expired')})</option>
+          <option value="unrelated">Unrelated Fields ({count('unrelated')})</option>
           <option value="cleared">Cleared ({count('cleared')})</option>
           <option value="all">All ({count('all')})</option>
         </select>
@@ -1150,7 +1204,7 @@ function LeadsTable({
             .filter((o) => o !== 'match' || scored)
             .map((o) => (
               <option key={o} value={o}>
-                {isGrouping(o) ? `Group by ${LEAD_ORDERS[o].toLowerCase()}` : `Sort: ${LEAD_ORDERS[o].toLowerCase()}`}
+                {isGrouping(o) ? `Group by ${LEAD_ORDERS[o]}` : `Sort by ${LEAD_ORDERS[o]}`}
               </option>
             ))}
         </select>
@@ -1162,10 +1216,10 @@ function LeadsTable({
         )}
         {isGrouping(order) && (
           <select value={second ?? ''} onChange={(e) => setThen(e.target.value as LeadGrouping | '')} aria-label="Then group by">
-            <option value="">Then by nothing</option>
+            <option value="">No Subgroups</option>
             {GROUPINGS.filter((o) => o !== order).map((o) => (
               <option key={o} value={o}>
-                Then by {LEAD_ORDERS[o].toLowerCase()}
+                Then by {LEAD_ORDERS[o]}
               </option>
             ))}
           </select>
@@ -1180,12 +1234,12 @@ function LeadsTable({
         Jobs no alert has listed in {LEAD_EXPIRY_DAYS} days count as likely expired.{' '}
         {view === 'cleared' ? (
           <button className="link" disabled={!cleared.length} onClick={() => onMarkMany(cleared.map((l) => l.key), undefined)}>
-            Restore all cleared ({cleared.length})
+            Restore All Cleared ({cleared.length})
           </button>
         ) : (
           clearable.length > 0 && (
             <button className="link" onClick={clearOld}>
-              Clear {clearable.length} expired or applied
+              Clear {clearable.length} Expired or Applied
             </button>
           )
         )}
@@ -1210,7 +1264,7 @@ function LeadsTable({
             : []),
           {
             key: 'title',
-            label: 'Job title',
+            label: 'Job Title',
             get: (l) => l.title,
             render: (l) =>
               l.url && !demo ? (
@@ -1296,7 +1350,7 @@ function EmailsTable({ records, onRelabel, demo }: { records: EmailRecord[]; onR
       <div className="toolbar">
         <div className="toolbar-row">
           <select value={show} onChange={(e) => setShow(e.target.value as Category | 'all')} aria-label="Show">
-            <option value="all">All types</option>
+            <option value="all">All Types</option>
             {Object.entries(CATEGORY_LABELS).map(([k, v]) => (
               <option key={k} value={k}>
                 {v}

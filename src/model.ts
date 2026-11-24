@@ -8,10 +8,10 @@ export type Status = 'applied' | 'action' | 'rejected' | 'interview_rejected' | 
 
 export const STATUS_LABELS: Record<Status, string> = {
   applied: 'Applied',
-  action: 'Action needed',
+  action: 'Action Needed',
   rejected: 'Rejected',
-  interview_rejected: 'Interview + rejection',
-  interview_offer: 'Interview + offer',
+  interview_rejected: 'Interview + Rejection',
+  interview_offer: 'Interview + Offer',
   scam: 'Scam',
   removed: 'Removed',
 }
@@ -28,9 +28,9 @@ const LEGACY_STATUS: Record<string, Status> = {
 export type StatusGroup = 'all' | 'applied' | 'action' | 'interviews' | 'rejected' | 'scam' | 'removed'
 
 export const STATUS_GROUPS: Record<StatusGroup, { label: string; statuses: Status[] }> = {
-  all: { label: 'All applications', statuses: ['applied', 'action', 'rejected', 'interview_rejected', 'interview_offer'] },
-  applied: { label: 'Applied, no reply yet', statuses: ['applied'] },
-  action: { label: 'Action needed', statuses: ['action'] },
+  all: { label: 'All Applications', statuses: ['applied', 'action', 'rejected', 'interview_rejected', 'interview_offer'] },
+  applied: { label: 'Awaiting Reply', statuses: ['applied'] },
+  action: { label: 'Action Needed', statuses: ['action'] },
   interviews: { label: 'Interviewed', statuses: ['interview_rejected', 'interview_offer'] },
   rejected: { label: 'Rejected', statuses: ['rejected', 'interview_rejected'] },
   scam: { label: 'Scams', statuses: ['scam'] },
