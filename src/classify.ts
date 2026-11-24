@@ -481,7 +481,8 @@ export function unescapeSnippet(s: string): string {
 }
 
 export function toRecord(email: RawEmail, override?: Category): EmailRecord {
-  const raw = { ...email, snippet: unescapeSnippet(email.snippet) }
+  // Plain-text parts arrive with Windows line endings (\r\n), which line-based patterns miss.
+  const raw = { ...email, snippet: unescapeSnippet(email.snippet), body: email.body.replace(/\r\n?/g, '\n') }
   const source = sourceOf(raw.fromDomain)
   const category = override ?? classify(raw)
   return {

@@ -311,7 +311,8 @@ describe('several jobs at one employer, and one job confirmed twice', () => {
       id,
       threadId: 'same-subject-thread',
       date: Date.UTC(2026, 10, 24, 4, minute),
-      body: `Dear Keith Wong:\n\nThank you for your interest in employment at Metro University. This message acknowledges receipt of your application for the following position(s) submitted on 2026-11-23:\n\n${position}\n\nTo review your information, click on the following link:\n\nhttps://example.edu/apply\n\nThanks and stay safe!`,
+      // Plain-text parts come with \r\n line endings, as Gmail serves them.
+      body: `Dear Keith Wong:\r\n\r\nThank you for your interest in employment at Metro University. This message acknowledges receipt of your application for the following position(s) submitted on 2026-11-23:\r\n\r\n${position}\r\n\r\nTo review your information, click on the following link:\n\nhttps://example.edu/apply\n\nThanks and stay safe!`,
     })
 
   it('keeps different jobs apart even when Gmail threads their confirmations', () => {
@@ -319,11 +320,13 @@ describe('several jobs at one employer, and one job confirmed twice', () => {
       peoplesoft('a', 37, '33039-IT Assistant - Network, Level 1 (Provisional)'),
       peoplesoft('b', 38, '32994-HR Coordinator (Assistant to HEO)'),
       peoplesoft('c', 39, '33099-IT Support Assistant (Provisional) - Department of Information Technology'),
+      peoplesoft('d', 47, '32907-IT Support Assistant (Hourly) 2 Positions'),
     ])
     expect(apps.map((a) => a.title)).toEqual([
       'IT Assistant - Network, Level 1 (Provisional)',
       'HR Coordinator (Assistant to HEO)',
       'IT Support Assistant (Provisional) - Department of Information Technology',
+      'IT Support Assistant (Hourly) 2 Positions',
     ])
   })
 
