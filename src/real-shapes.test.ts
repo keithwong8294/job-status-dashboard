@@ -303,3 +303,61 @@ describe('Handshake applications', () => {
     expect(r.job).toEqual({ company: 'Acme Labs' })
   })
 })
+
+describe('several jobs at one employer, and one job confirmed twice', () => {
+  const peoplesoft = (id: string, minute: number, position: string) =>
+    toRecord({
+      ...mail('HRSRecruiting@metro.edu', 'Your online application has been successfully submitted'),
+      id,
+      threadId: 'same-subject-thread',
+      date: Date.UTC(2026, 10, 24, 4, minute),
+      body: `Dear Keith Wong:\n\nThank you for your interest in employment at Metro University. This message acknowledges receipt of your application for the following position(s) submitted on 2026-11-23:\n\n${position}\n\nTo review your information, click on the following link:\n\nhttps://example.edu/apply\n\nThanks and stay safe!`,
+    })
+
+  it('keeps different jobs apart even when Gmail threads their confirmations', () => {
+    const apps = buildApplications([
+      peoplesoft('a', 37, '33039-IT Assistant - Network, Level 1 (Provisional)'),
+      peoplesoft('b', 38, '32994-HR Coordinator (Assistant to HEO)'),
+      peoplesoft('c', 39, '33099-IT Support Assistant (Provisional) - Department of Information Technology'),
+    ])
+    expect(apps.map((a) => a.title)).toEqual([
+      'IT Assistant - Network, Level 1 (Provisional)',
+      'HR Coordinator (Assistant to HEO)',
+      'IT Support Assistant (Provisional) - Department of Information Technology',
+    ])
+  })
+
+  const indeed = (title: string, company: string, second: number) =>
+    toRecord({
+      ...mail('indeedapply@indeed.com', `Indeed Application: ${title}`, "We'll help you get started"),
+      id: `indeed-${title}`,
+      body: `Application submitted\n${title}\n${company} - New York, NY\nThe following items were sent to ${company}. Good luck!`,
+      date: Date.UTC(2026, 10, 24, 1, 54, second),
+    })
+  const employer = (snippet: string, second: number) =>
+    toRecord({
+      ...mail('do_not_reply@clearcompany.com', 'Application Received', snippet),
+      fromName: 'Human Resources',
+      id: `employer-${second}`,
+      body: snippet.replace(/&amp;/g, '&'),
+      date: Date.UTC(2026, 10, 24, 1, 54, second),
+    })
+
+  it("counts a job board's confirmation and the employer's own as one application", () => {
+    // Gmail escapes snippets, so the company first reads "Bigfirm &amp; Co".
+    const apps = buildApplications([
+      indeed('Jr. Operations Specialist (DTC)', 'Bigfirm & Co. Inc.', 54),
+      employer('Dear KEITH, Thank you for your interest in Bigfirm &amp; Co. Inc. and the Jr. Operations Specialist (DTC) position. We have received your application', 56),
+    ])
+    expect(apps).toHaveLength(1)
+    expect(apps[0].emails).toHaveLength(2)
+  })
+
+  it('still keeps two different jobs at that employer apart', () => {
+    const apps = buildApplications([
+      indeed('Jr. Operations Specialist (DTC)', 'Bigfirm & Co. Inc.', 54),
+      employer('Dear KEITH, Thank you for your interest in Bigfirm &amp; Co. Inc. and the Compliance Analyst position. We have received your application', 56),
+    ])
+    expect(apps).toHaveLength(2)
+  })
+})

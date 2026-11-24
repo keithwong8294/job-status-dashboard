@@ -253,9 +253,13 @@ const BODY_COMPANY: RegExp[] = [
 ]
 
 const BODY_TITLE: RegExp[] = [
+  // CUNYfirst / PeopleSoft: "…for the following position(s) submitted on 2026-11-23:\n\n33039-IT Assistant"
+  /\bfollowing (?:position|job|role|opening|requisition)s?(?:\(s\))?[^:\n]{0,40}:[ \t]*\n\s*(?<title>[^\n]{3,120})/i,
   /(?:position|role) of ['‘"]?(?<title>[^'’".\n]{3,80}?)['’"]?(?:\.|\n| -\d| at )/i,
   /(?:position|role) ['‘"](?<title>[^'’"\n]{3,80})['’"]/i,
   /(?:applying|application) (?:for|to) the (?<title>[^.\n]{3,80}?) (?:position|role|opening)\b/i,
+  // "your interest in Acme and the Jr. Operations Specialist (DTC) position"
+  /\b(?:in|and|for) the (?<title>[A-Z][^\n]{2,80}?) (?:position|role|opening)\b/,
   /\b(?:the|for|as an?) (?<title>[A-Z][\w/&+.-]*(?: [A-Z][\w/&+.-]*| I{1,3}| of| and){0,6}) (?:[Rr]ole|[Pp]osition|[Oo]pening|[Jj]ob)\b/,
 ]
 
@@ -272,6 +276,15 @@ function cleanup(s?: string): string | undefined {
   return t ? t : undefined
 }
 
+/** Words the loose "the X position" pattern catches that aren't a job title. */
+const NOT_A_TITLE = /^(?:following|above|below|this|that|same|open|new|selected|applied|available|your|our|an?|any|other|posted|current)$/i
+
+/** "33039-IT Assistant (Provisional)" → "IT Assistant (Provisional)"; drops filler like "following". */
+function cleanTitle(s?: string): string | undefined {
+  const t = cleanup(s?.replace(/^\s*(?:req(?:uisition)?\.?\s*#?\s*)?\d{3,}\s*[-–:]\s*/i, ''))
+  return t && !NOT_A_TITLE.test(t) ? t : undefined
+}
+
 /** Trims a company name grabbed from running text: "Acme, LLC. Our team…" → "Acme, LLC". */
 function cleanCompany(s?: string): string | undefined {
   const t = cleanup(s?.split(/[.!?] (?=[A-Z])/)[0].replace(/['’]s\b.*$/, ''))
@@ -280,11 +293,11 @@ function cleanCompany(s?: string): string | undefined {
 }
 
 function senderCompany(raw: RawEmail): string | undefined {
-  const name = cleanup(raw.fromName.replace(/\b(?:careers|recruiting|talent(?: acquisition)?|jobs|hr|team|hiring|via \w+)\b/gi, ''))
+  const name = cleanup(raw.fromName.replace(/\b(?:careers|recruiting|talent(?: acquisition)?|human resources|jobs|hr|team|hiring|via \w+)\b/gi, ''))
   if (name && !GENERIC_SENDER.test(name) && !/@/.test(name)) return name
   // "talent@ibm.com" → "ibm"; skip shared hiring-software domains.
   const domain = raw.fromDomain.split('.').slice(-2, -1)[0]
-  if (domain && !/myworkday|workday|handshake|icims|greenhouse|lever|taleo|paylocity|dayforce|paychex|saashr|ashbyhq|pinpoint|hrrecruiting|smartrecruiters|indeed|linkedin|glassdoor/i.test(raw.fromDomain)) {
+  if (domain && !/myworkday|workday|handshake|icims|greenhouse|lever|taleo|paylocity|dayforce|paychex|saashr|ashbyhq|pinpoint|hrrecruiting|smartrecruiters|clearcompany|indeed|linkedin|glassdoor/i.test(raw.fromDomain)) {
     return domain.length <= 4 ? domain.toUpperCase() : domain[0].toUpperCase() + domain.slice(1)
   }
 }
@@ -309,7 +322,7 @@ export function extractJob(raw: RawEmail, source: Source): Job {
   if (!job.company && source === 'direct') job.company = senderCompany(raw)
   for (const re of BODY_TITLE) {
     if (job.title) break
-    job.title = cleanup(body.match(re)?.groups?.title)
+    job.title = cleanTitle(body.match(re)?.groups?.title)
   }
   job.location = parseLocation(`${subject}\n${body}`)
   job.pay = parsePay(body)
@@ -460,7 +473,15 @@ export function extractLeads(raw: RawEmail): Job[] {
   return leads
 }
 
-export function toRecord(raw: RawEmail, override?: Category): EmailRecord {
+/** Gmail sends snippets HTML-escaped ("Oppenheimer &amp; Co."), unlike bodies. */
+export function unescapeSnippet(s: string): string {
+  return s.replace(/&(?:#(\d+)|#x([\da-f]+)|(amp|lt|gt|quot|apos|nbsp));/gi, (m, dec, hex, name) =>
+    dec ? String.fromCodePoint(+dec) : hex ? String.fromCodePoint(parseInt(hex, 16)) : ({ amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' } as Record<string, string>)[name.toLowerCase()] ?? m,
+  )
+}
+
+export function toRecord(email: RawEmail, override?: Category): EmailRecord {
+  const raw = { ...email, snippet: unescapeSnippet(email.snippet) }
   const source = sourceOf(raw.fromDomain)
   const category = override ?? classify(raw)
   return {

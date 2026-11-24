@@ -90,40 +90,67 @@ function statusFromEmails(emails: EmailRecord[]): Status {
 const normalize = (company: string) =>
   company.toLowerCase().replace(/\b(?:inc|llc|ltd|corp|corporation|co|the)\b|[^a-z0-9]/g, '')
 
+/** Titles name the same job when one is the other with extra words ("IT Assistant" / "IT Assistant (Provisional)"). */
+function sameTitle(a?: string, b?: string): boolean {
+  if (!a || !b) return true
+  const x = normalize(a)
+  const y = normalize(b)
+  return x === y || (Math.min(x.length, y.length) >= 6 && (x.includes(y) || y.includes(x)))
+}
+
+/** Company names that differ only in a suffix or extra words ("Oppenheimer & Co" / "Oppenheimer"). */
+const sameCompany = (a: string, b: string) => a === b || (Math.min(a.length, b.length) >= 4 && (a.startsWith(b) || b.startsWith(a)))
+
+/** How close a job board's confirmation and the employer's own one usually arrive. */
+const ECHO_WINDOW = 3 * 864e5
+
 /**
- * Groups emails into applications by company and job title. A response or
- * rejection that doesn't name the job is matched to the newest application
- * at that company.
- */
-/**
- * Groups emails into applications. Emails in the same Gmail thread always stay
- * together. Otherwise they group by company and job title; a response or
- * rejection that doesn't name the job goes to the newest application at that
- * company, and back-to-back confirmations from one sender count once.
+ * Groups emails into applications. Emails in the same Gmail thread stay
+ * together unless they name different jobs (some employers send every
+ * confirmation with one subject, so Gmail threads them). Otherwise they group
+ * by company and job title; a response or rejection that doesn't name the job
+ * goes to the newest application at that company, back-to-back confirmations
+ * from one sender count once, and a job board's confirmation plus the
+ * employer's own one for the same job count once.
  */
 export function buildApplications(records: EmailRecord[]): Application[] {
   const groups = new Map<string, Application>()
   const byThread = new Map<string, Application>()
   const latestAt = new Map<string, Application>()
   const lastFrom = new Map<string, { app: Application; date: number }>()
+  const companyOf = new Map<Application, string>()
   const sorted = records.filter((r) => STATUS_OF[r.category]).sort((a, b) => a.date - b.date)
   for (const r of sorted) {
     const company = r.job.company ?? r.fromName ?? r.fromDomain
     const companyKey = normalize(company) || r.fromDomain
     const title = r.job.title
     const recent = lastFrom.get(r.from)
+    const thread = byThread.get(r.threadId)
+    const inThread = thread && sameTitle(title, thread.title) ? thread : undefined
+    // The same job confirmed by a job board and by the employer: different source, a few days apart.
+    const echo = () =>
+      r.category === 'application'
+        ? [...groups.values()].find(
+            (a) =>
+              a.appliedOn !== undefined &&
+              Math.abs(r.date - a.appliedOn) < ECHO_WINDOW &&
+              a.emails.every((e) => e.source !== r.source) &&
+              sameCompany(companyOf.get(a)!, companyKey) &&
+              sameTitle(title, a.title),
+          )
+        : undefined
     let app =
-      byThread.get(r.threadId) ??
+      inThread ??
       (title !== undefined ? groups.get(`${companyKey}|${normalize(title)}`) : latestAt.get(companyKey)) ??
+      echo() ??
       // Only an employer's own address: job boards send every application from one sender.
-      (recent && r.source === 'direct' && r.date - recent.date < 2 * 3600e3 && (!title || !recent.app.title || title === recent.app.title)
-        ? recent.app
-        : undefined)
+      (recent && r.source === 'direct' && r.date - recent.date < 2 * 3600e3 && sameTitle(title, recent.app.title) ? recent.app : undefined)
     // A new confirmation for a job we already closed out is a re-application.
-    if (!app || (r.category === 'application' && app.emails.at(-1)!.category !== 'application' && title === undefined && !byThread.has(r.threadId))) {
+    if (!app || (r.category === 'application' && app.emails.at(-1)!.category !== 'application' && title === undefined && !inThread)) {
       const key = `${companyKey}|${title ? normalize(title) : r.id}`
       app = { key, company, status: 'applied', emailStatus: 'applied', edited: false, scamSigns: [], lastUpdate: r.date, emails: [] }
       groups.set(key, app)
+      companyOf.set(app, companyKey)
     }
     byThread.set(r.threadId, app)
     latestAt.set(companyKey, app)
