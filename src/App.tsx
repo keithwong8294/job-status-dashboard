@@ -656,10 +656,21 @@ function SortableTable<T extends { key: string }>({
   empty,
   sortable = true,
   groups,
+  sort: controlled,
+  onSort,
+  extraSorts,
+  firstDir,
 }: {
   items: T[]
   columns: Column<T>[]
   initial: { key: string; dir: SortDir }
+  /** When set, a menu outside the table owns the sort and header clicks report to onSort. */
+  sort?: { key: string; dir: SortDir }
+  onSort?: (s: { key: string; dir: SortDir }) => void
+  /** Sorts that have no column of their own, such as a lead's field. */
+  extraSorts?: Record<string, (t: T) => string | number | undefined>
+  /** Which way a header sorts on its first click; newest/biggest first unless this says otherwise. */
+  firstDir?: (key: string) => SortDir
   detail?: (t: T) => ReactNode
   empty: string
   /** False when the order comes from a menu instead of the column headers. */
@@ -667,12 +678,14 @@ function SortableTable<T extends { key: string }>({
   /** Splits the rows under collapsible headings, in the order this returns them. */
   groups?: (rows: T[]) => RowGroup<T>[]
 }) {
-  const [sort, setSort] = useState(initial)
+  const [own, setOwn] = useState(initial)
+  const sort = controlled ?? own
+  const setSort = onSort ?? setOwn
   const [open, setOpen] = useState<string>()
   const [openGroups, setOpenGroups] = useState(new Set<string>())
   const [limit, setLimit] = useState(PAGE_SIZE)
-  const col = columns.find((c) => c.key === sort.key) ?? columns[0]
-  const rows = sortBy(items, col.get, sort.dir)
+  const get = extraSorts?.[sort.key] ?? (columns.find((c) => c.key === sort.key) ?? columns[0]).get
+  const rows = sortBy(items, get, sort.dir)
   if (!rows.length) return <p className="muted empty">{empty}</p>
   const renderRow = (r: T) => (
     <Row key={r.key} item={r} columns={columns} open={open === r.key} onToggle={detail ? () => setOpen(open === r.key ? undefined : r.key) : undefined} detail={detail} />
@@ -701,10 +714,13 @@ function SortableTable<T extends { key: string }>({
         <thead>
           <tr>
             {columns.map((c) =>
-              sortable ? (
+              sortable && c.label ? (
                 <th key={c.key} aria-sort={sort.key === c.key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
                   <button
-                    onClick={() => setSort({ key: c.key, dir: sort.key === c.key && sort.dir === 'desc' ? 'asc' : 'desc' })}
+                    onClick={() => {
+                      const first = firstDir?.(c.key) ?? 'desc'
+                      setSort({ key: c.key, dir: sort.key === c.key ? (sort.dir === 'asc' ? 'desc' : 'asc') : first })
+                    }}
                   >
                     {c.label}
                     <span className="arrow">{sort.key === c.key ? (sort.dir === 'asc' ? '▲' : '▼') : ''}</span>
@@ -1102,19 +1118,16 @@ function leadPlacer(leads: Lead[], applications: Application[], statuses: Map<st
 /** Leads that still count: everything except cleared ones and unrelated fields. */
 const isCounted = (v: LeadView) => v !== 'cleared' && v !== 'unrelated'
 /** How rows are ordered, inside groups too. */
-type LeadSort = 'match' | 'date' | 'pay'
+/** Keys the job-lead column headers sort by. */
+const LEAD_SORTS = ['match', 'title', 'company', 'location', 'pay', 'source', 'date'] as const
+type LeadSort = (typeof LEAD_SORTS)[number]
 type LeadGrouping = 'title' | 'field' | 'location'
 const GROUPINGS: LeadGrouping[] = ['location', 'field', 'title']
 const isGrouping = (o?: string): o is LeadGrouping => (GROUPINGS as string[]).includes(o ?? '')
-const isSort = (o?: string): o is LeadSort => o === 'match' || o === 'date' || o === 'pay'
-
-const SORT_LABELS: Record<LeadSort, string> = { match: 'Best Match', date: 'Date Received', pay: 'Pay' }
+const isSort = (o?: string): o is LeadSort => (LEAD_SORTS as readonly string[]).includes(o ?? '')
 const GROUP_LABELS: Record<LeadGrouping, string> = { location: 'Location', field: 'Field', title: 'Job Title' }
-/** Sorts that can run either way, and what each direction is called. */
-const DIRECTIONS: Partial<Record<LeadSort, Record<SortDir, string>>> = {
-  date: { desc: 'Newest First', asc: 'Oldest First' },
-  pay: { desc: 'Highest First', asc: 'Lowest First' },
-}
+/** Numbers start biggest or newest first; names, and distance, start A to Z or nearest. */
+const defaultDir = (key: string): SortDir => (key === 'match' || key === 'date' || key === 'pay' ? 'desc' : 'asc')
 
 /** Biggest groups first, catch-alls last. */
 function bySize<T>(map: Map<string, T[]>, last: string) {
@@ -1172,8 +1185,9 @@ function LeadsTable({
     const saved = readStored('leadSort') ?? oldOrder
     return isSort(saved) ? saved : 'match'
   })
-  const setSort = (o: LeadSort) => {
+  const setSort = (o: LeadSort, d: SortDir = defaultDir(o)) => {
     setSortState(o)
+    setDir(d)
     if (!demo) writeStored('leadSort', o)
   }
   const [thenBy, setThenState] = useState<LeadGrouping | ''>(() => (readStored('leadThen') as LeadGrouping | undefined) ?? '')
@@ -1189,8 +1203,17 @@ function LeadsTable({
   const second = group && thenBy && thenBy !== group ? thenBy : undefined
   // Best match needs a resume; without one, newest first.
   const rowOrder: LeadSort = sortKey === 'match' && !scored ? 'date' : sortKey
-  // Pay and date run whichever way you pick; best match always lists the best first.
-  const rowDir: SortDir = DIRECTIONS[rowOrder] ? dir : 'desc'
+  const rowDir = dir
+  /** Sort values for keys whose column shows something else, or that have no column. */
+  const extraSorts: Record<string, (l: Lead) => string | number | undefined> = {
+    // With a home town: remote first, then by drive time; places we can't find sink to the bottom.
+    location: (l) => {
+      if (!home) return l.location
+      if (/remote/i.test(l.location ?? '')) return -1
+      const to = locate(l.location)
+      return to ? driveFrom(home, to).minutes : undefined
+    },
+  }
   function groups<T extends Lead>(rows: T[]): RowGroup<T>[] {
     return group ? groupBy(group, rows).map((g) => (second ? { ...g, sub: groupBy(second, g.rows) } : g)) : []
   }
@@ -1268,21 +1291,6 @@ function LeadsTable({
             ))}
           </select>
         )}
-        <select value={rowOrder} onChange={(e) => setSort(e.target.value as LeadSort)} aria-label="Sort by" title={group ? 'Sorts the jobs inside each group' : undefined}>
-          {(Object.keys(SORT_LABELS) as LeadSort[])
-            .filter((o) => o !== 'match' || scored)
-            .map((o) => (
-              <option key={o} value={o}>
-                Sort by {SORT_LABELS[o]}
-              </option>
-            ))}
-        </select>
-        {DIRECTIONS[rowOrder] && (
-          <select value={dir} onChange={(e) => setDir(e.target.value as SortDir)} aria-label="Sort direction">
-            <option value="desc">{DIRECTIONS[rowOrder]!.desc}</option>
-            <option value="asc">{DIRECTIONS[rowOrder]!.asc}</option>
-          </select>
-        )}
       </FilterBar>
       <p className="muted hint">
         {demo
@@ -1290,7 +1298,7 @@ function LeadsTable({
           : autofillAvailable()
             ? 'Apply opens the posting, fills in the Easy Apply form, and stops at Submit. '
             : 'Apply opens the posting and marks it applied. '}
-        Jobs no alert has listed in {LEAD_EXPIRY_DAYS} days count as likely expired.{' '}
+        Click a column header to sort, and click again to reverse it. Jobs no alert has listed in {LEAD_EXPIRY_DAYS} days count as likely expired.{' '}
         {view === 'cleared' ? (
           <button className="link" disabled={!cleared.length} onClick={() => onMarkMany(cleared.map((l) => l.key), undefined)}>
             Restore All Cleared ({cleared.length})
@@ -1304,10 +1312,13 @@ function LeadsTable({
         )}
       </p>
       <SortableTable
-        key={`${scored ? 'scored' : 'plain'}-${group}-${second ?? ''}-${rowOrder}-${rowDir}`}
+        key={`${scored ? 'scored' : 'plain'}-${group}-${second ?? ''}`}
         items={items}
         initial={{ key: rowOrder, dir: rowDir }}
-        sortable={false}
+        sort={{ key: rowOrder, dir: rowDir }}
+        onSort={({ key, dir }) => isSort(key) && setSort(key, dir)}
+        extraSorts={extraSorts}
+        firstDir={defaultDir}
         groups={group ? groups : undefined}
         empty={view === 'new' || view === 'recommended' ? 'No new job leads match these filters.' : 'No job leads here yet.'}
         columns={[
