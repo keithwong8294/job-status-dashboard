@@ -27,7 +27,7 @@ import {
   type StatusGroup,
   type Status,
 } from './model'
-import { DEFAULT_PROFILE, hasProfile, isRecommended, resumeFamilies, resumeSkills, scoreLead, type Match, type Profile } from './recommend'
+import { DEFAULT_PROFILE, hasProfile, isRecommended, resumeFamilies, resumeSkills, scoreLead, targetTitles, type Match, type Profile } from './recommend'
 import { driveFrom, formatDrive, locate } from './distance'
 import { DEFAULT_HIDDEN_FIELDS, FIELD_NAMES, fieldOf, placeOf, titleGroup } from './fields'
 import { pdfText } from './pdf'
@@ -926,13 +926,54 @@ function ProfileCard({ profile, onSave, demo }: { profile: Profile; onSave: (p: 
   const skills = resumeSkills(draft.resume)
   if (!open) {
     return (
-      <p className="muted profile-line" title={`Role types: ${resumeFamilies(profile.resume).join(', ') || 'none found'}. ${resumeSkills(profile.resume).length} skills found.`}>
-        Ranked against {demo ? 'a sample resume' : 'your resume'}: ${Math.round(profile.minPay / 1000)}K+, NY/NJ/CT{profile.includeRemote ? ' or remote' : ''}
-        {profile.home.trim() ? `, drive times from ${profile.home.trim()}` : ', add a home town for drive times'}.{' '}
-        <button className="link" onClick={() => setOpen(true)}>
-          Edit
-        </button>
-      </p>
+      <section className="match-settings" aria-label="How job leads are ranked">
+        <div className="match-head">
+          <div>
+            <h3>Your Match Settings</h3>
+            <p className="muted">Each lead gets a match score out of 100 from these settings. Change them to re-rank everything.</p>
+          </div>
+          <button className="ghost small" onClick={() => setOpen(true)}>
+            Edit Settings
+          </button>
+        </div>
+        <dl className="match-facts">
+          <div>
+            <dt>Resume</dt>
+            <dd title={`Role types: ${resumeFamilies(profile.resume).join(', ') || 'none found'}`}>
+              {demo ? 'Sample resume' : profile.resume.trim() ? 'Your resume' : 'None yet'} · {resumeSkills(profile.resume).length} skills
+            </dd>
+          </div>
+          <div>
+            <dt>Target Titles</dt>
+            <dd>{targetTitles(profile).length ? targetTitles(profile).slice(0, 2).join(', ') + (targetTitles(profile).length > 2 ? ` +${targetTitles(profile).length - 2}` : '') : 'From resume'}</dd>
+          </div>
+          <div>
+            <dt>Minimum Pay</dt>
+            <dd>${Math.round(profile.minPay / 1000)}K per year</dd>
+          </div>
+          <div>
+            <dt>Area</dt>
+            <dd>NY / NJ / CT{profile.includeRemote ? ' + remote' : ''}</dd>
+          </div>
+          <div className={profile.home.trim() ? 'home' : 'home missing'}>
+            <dt>Drive Times From</dt>
+            <dd>
+              {profile.home.trim() ? (
+                profile.home.trim()
+              ) : (
+                <button className="link" onClick={() => setOpen(true)}>
+                  Add your home town
+                </button>
+              )}
+            </dd>
+          </div>
+        </dl>
+        <p className="muted fine">
+          {profile.home.trim()
+            ? `Drive times are rough estimates from ${profile.home.trim()}: straight-line distance × 1.3 at 25–55 mph, plus 20 minutes for driving into New York City.`
+            : 'Add a home town to see a rough drive time next to each job.'}
+        </p>
+      </section>
     )
   }
   return (
@@ -1303,7 +1344,11 @@ function LeadsTable({
               return (
                 <>
                   {l.location}
-                  {to && <div className="muted drive">{formatDrive(driveFrom(home, to))}</div>}
+                  {to && (
+                    <div className="muted drive" title={`Rough estimate from ${profile.home.trim()}, your home town in Match Settings`}>
+                      {formatDrive(driveFrom(home, to))}
+                    </div>
+                  )}
                 </>
               )
             },

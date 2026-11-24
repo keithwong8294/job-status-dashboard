@@ -886,3 +886,70 @@ fieldset.field-picks label.check {
   gap: 6px;
   align-items: center;
 }
+
+/* How leads are ranked: the resume, pay, area and home town behind every score and drive time. */
+.match-settings {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px 20px;
+  margin-bottom: 16px;
+}
+.match-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+.match-head h3 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0 0 2px;
+}
+.match-head p {
+  margin: 0;
+  font-size: 13px;
+}
+.match-facts {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px 20px;
+  margin: 16px 0 12px;
+}
+.match-facts dt {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+.match-facts dd {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+}
+.match-facts .home dd::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  margin-right: 6px;
+  vertical-align: 1px;
+}
+.match-facts .home.missing dd::before {
+  background: var(--warn);
+}
+.match-settings .fine {
+  font-size: 12px;
+  margin: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--grid);
+}
+@media (max-width: 720px) {
+  .match-facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
