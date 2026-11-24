@@ -311,7 +311,8 @@ describe('several jobs at one employer, and one job confirmed twice', () => {
       id,
       threadId: 'same-subject-thread',
       date: Date.UTC(2026, 10, 24, 4, minute),
-      body: `Dear Keith Wong:\n\nThank you for your interest in employment at Metro University. This message acknowledges receipt of your application for the following position(s) submitted on 2026-11-23:\n\n${position}\n\nTo review your information, click on the following link:\n\nhttps://example.edu/apply\n\nThanks and stay safe!`,
+      // Plain-text parts come with \r\n line endings, as Gmail serves them.
+      body: `Dear Keith Wong:\r\n\r\nThank you for your interest in employment at Metro University. This message acknowledges receipt of your application for the following position(s) submitted on 2026-11-23:\r\n\r\n${position}\r\n\r\nTo review your information, click on the following link:\n\nhttps://example.edu/apply\n\nThanks and stay safe!`,
     })
 
   it('keeps different jobs apart even when Gmail threads their confirmations', () => {
@@ -319,11 +320,13 @@ describe('several jobs at one employer, and one job confirmed twice', () => {
       peoplesoft('a', 37, '33039-IT Assistant - Network, Level 1 (Provisional)'),
       peoplesoft('b', 38, '32994-HR Coordinator (Assistant to HEO)'),
       peoplesoft('c', 39, '33099-IT Support Assistant (Provisional) - Department of Information Technology'),
+      peoplesoft('d', 47, '32907-IT Support Assistant (Hourly) 2 Positions'),
     ])
     expect(apps.map((a) => a.title)).toEqual([
       'IT Assistant - Network, Level 1 (Provisional)',
       'HR Coordinator (Assistant to HEO)',
       'IT Support Assistant (Provisional) - Department of Information Technology',
+      'IT Support Assistant (Hourly) 2 Positions',
     ])
   })
 
@@ -359,5 +362,60 @@ describe('several jobs at one employer, and one job confirmed twice', () => {
       employer('Dear KEITH, Thank you for your interest in Bigfirm &amp; Co. Inc. and the Compliance Analyst position. We have received your application', 56),
     ])
     expect(apps).toHaveLength(2)
+  })
+})
+
+describe('replies matched to their confirmation', () => {
+  const at = (from: string, fromName: string, subject: string, body: string, day: number, second = 0) =>
+    toRecord({ ...mail(from, subject, body.slice(0, 200)), id: `${from}-${day}-${second}`, threadId: `${from}-${day}-${second}`, fromName, body, date: Date.UTC(2026, 10, day, 0, 0, second) })
+  const only = (apps: ReturnType<typeof buildApplications>) => {
+    expect(apps).toHaveLength(1)
+    return apps[0]
+  }
+
+  it('joins a rejection that names the company differently (Workday)', () => {
+    const app = only(
+      buildApplications([
+        at('vhr_pharma@myworkday.com', 'noreply pharma', 'Thank you for Applying to Pharmaco - Associate, Systems Analyst', 'Dear Keith Wong , We have received your application for the role of Associate, Systems Analyst and thank you for your interest in Pharmaco!', 9),
+        at('vhr_pharma@myworkday.com', 'noreply pharma', 'Update on Your Application for Associate, Systems Analyst', 'Dear Keith,\n\nThank you for your interest in the Associate, Systems Analyst position at Pharmaco Pharmaceutical Inc.\n\nAfter careful consideration, we have decided to move forward with other candidates', 19),
+      ]),
+    )
+    expect(app).toMatchObject({ status: 'rejected', appliedOn: Date.UTC(2026, 10, 9) })
+    expect(app.appliedGuessed).toBeFalsy()
+  })
+
+  it('reads a requisition-number title and joins its rejection', () => {
+    const app = only(
+      buildApplications([
+        at('bigco@myworkday.com', 'Bigco HR', 'Bigco Application Received', 'Dear KEITH,\n\nGood news! We have received your application for REQ547463 Specialist, Data Center Operations - Union\n\nBigco could be your next home.', 11),
+        at('bigco@myworkday.com', 'Bigco HR', 'Bigco Application Update', 'Hi KEITH,\n\nWe have unfortunately decided not to take your application any further for the position of REQ547463 Specialist, Data Center Operations - Union .', 19),
+      ]),
+    )
+    expect(app).toMatchObject({ title: 'Specialist, Data Center Operations - Union', status: 'rejected', appliedOn: Date.UTC(2026, 10, 11) })
+  })
+
+  it('joins an iCIMS rejection sent from a different +tag of the same mailbox', () => {
+    const app = only(
+      buildApplications([
+        at('insure+autoreply@talent.icims.com', 'Insure Co @ icims', 'Thank You for Applying to Insure Co', 'Dear Keith,\n\nThank you for applying for the IT Customer Experience Summer Internship - Short Hills, NJ (Hybrid) position at Insure Co.', 1),
+        at('insure+email+3g62-28c4@talent.icims.com', 'NoReply Insure', 'Thank You from Insure Co', 'Hi Keith,\n\nThank you for your interest in the IT Customer Experience Summer Internship - Short Hills, NJ (Hybrid) (ID 2026-5752) position.\n\nAfter careful review of your application, we\'ve decided that we will not move you forward in the hiring process. There are other candidates whose qualifications more closely align with the requirements of this position.', 23),
+      ]),
+    )
+    expect(app).toMatchObject({ status: 'rejected', appliedOn: Date.UTC(2026, 10, 1) })
+  })
+
+  it('joins a confirmation that arrives a second after the assessment request', () => {
+    const app = only(
+      buildApplications([
+        at('cvshealth@myworkday.com', 'Colleague Zone', 'Assessment Required to Complete Your CVS Health Application', 'Dear Keith, Thank you for your interest in a career at CVS Health! As part of the application process, you need to complete the Virtual Job Tryout (VJT) for at least one of your applications.', 18, 53),
+        at('cvshealth@myworkday.com', 'Colleague Zone', 'Your application with CVS Health has been received!', 'Dear Keith Wong, Thank you for expressing interest in joining CVS Health! This message is to notify you that we have successfully received your submission to the following position(s): R1093741 Pharmacy Technician (Open) If you would like to check the status of your application, please click', 18, 54),
+      ]),
+    )
+    expect(app).toMatchObject({ company: 'CVS Health', title: 'Pharmacy Technician (Open)', status: 'action', appliedOn: Date.UTC(2026, 10, 18, 0, 0, 54) })
+  })
+
+  it('guesses the applied date from the first email when no confirmation exists', () => {
+    const app = only(buildApplications([at('hr@acme.com', 'Acme', 'Update on your application', 'Unfortunately we have decided to move forward with other candidates', 5)]))
+    expect(app).toMatchObject({ appliedOn: Date.UTC(2026, 10, 5), appliedGuessed: true })
   })
 })
