@@ -647,7 +647,12 @@ function ApplicationsTable({
               </select>
             ),
           },
-          { key: 'applied', label: 'Applied', get: (a) => a.appliedOn, render: (a) => fmtDate(a.appliedOn) },
+          { key: 'applied', label: 'Applied', get: (a) => a.appliedOn, render: (a) =>
+              a.appliedGuessed ? (
+                <span title="No confirmation email found, so this is the date of the first email about it">≈ {fmtDate(a.appliedOn)}</span>
+              ) : (
+                fmtDate(a.appliedOn)
+              ) },
           { key: 'updated', label: 'Last update', get: (a) => a.lastUpdate, render: (a) => fmtDate(a.lastUpdate) },
           {
             key: 'remove',

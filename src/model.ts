@@ -53,6 +53,8 @@ export interface Application {
   /** Why this looks like a fake job, if it does. */
   scamSigns: string[]
   appliedOn?: number
+  /** True when no confirmation email was found, so appliedOn is the first email's date. */
+  appliedGuessed?: boolean
   lastUpdate: number
   emails: EmailRecord[]
 }
@@ -81,7 +83,8 @@ function statusFromEmails(emails: EmailRecord[]): Status {
   const text = (e: EmailRecord) => `${e.subject}\n${e.snippet}\n${e.body}`
   const responses = emails.filter((e) => e.category === 'response')
   const interviewed = responses.some((e) => INTERVIEW.test(text(e)))
-  const last = emails.at(-1)!
+  // A confirmation that lands after a reply (seconds after an assessment request, say) doesn't undo the reply.
+  const last = emails.findLast((e) => e.category !== 'application') ?? emails.at(-1)!
   if (last.category === 'rejection') return interviewed ? 'interview_rejected' : 'rejected'
   if (responses.some((e) => OFFER.test(text(e)))) return 'interview_offer'
   return STATUS_OF[last.category]!
@@ -101,6 +104,23 @@ function sameTitle(a?: string, b?: string): boolean {
 /** Company names that differ only in a suffix or extra words ("Oppenheimer & Co" / "Oppenheimer"). */
 const sameCompany = (a: string, b: string) => a === b || (Math.min(a.length, b.length) >= 4 && (a.startsWith(b) || b.startsWith(a)))
 
+const SHARED_ATS = /myworkday|workday|icims|greenhouse|lever|taleo|paylocity|dayforce|paychex|saashr|ashbyhq|pinpoint|hrrecruiting|smartrecruiters|clearcompany|jobvite|bamboohr|successfactors/i
+const GENERIC_MAILBOX = /^(?:no-?reply|do-?not-?reply|do_not_reply|notifications?|mail(?:er)?|info|system|alerts?|jobs|careers|talent|recruiting|hr)$/i
+
+/**
+ * The employer's own mailbox, which ties a rejection to its confirmation when
+ * the two name the company differently ("Otsuka" / "Otsuka Pharmaceutical Inc").
+ * "selective+autoreply@talent.icims.com" and "selective+email+3g62@…" are one
+ * mailbox. A shared hiring-software address like no-reply@clearcompany.com is no clue.
+ */
+function mailbox(r: EmailRecord): string | undefined {
+  if (r.source !== 'direct') return undefined
+  const [local = '', domain = ''] = r.from.toLowerCase().split('@')
+  const name = local.split('+')[0]
+  if (!name || (GENERIC_MAILBOX.test(name) && SHARED_ATS.test(domain))) return undefined
+  return `${name}@${domain}`
+}
+
 /** How close a job board's confirmation and the employer's own one usually arrive. */
 const ECHO_WINDOW = 3 * 864e5
 
@@ -119,6 +139,7 @@ export function buildApplications(records: EmailRecord[]): Application[] {
   const latestAt = new Map<string, Application>()
   const lastFrom = new Map<string, { app: Application; date: number }>()
   const companyOf = new Map<Application, string>()
+  const fromMailbox = new Map<string, Application[]>()
   const sorted = records.filter((r) => STATUS_OF[r.category]).sort((a, b) => a.date - b.date)
   for (const r of sorted) {
     const company = r.job.company ?? r.fromName ?? r.fromDomain
@@ -139,9 +160,18 @@ export function buildApplications(records: EmailRecord[]): Application[] {
               sameTitle(title, a.title),
           )
         : undefined
+    // Same employer mailbox: a reply goes to the application it names (or the newest one);
+    // a confirmation joins a reply that beat it to the inbox by a few seconds.
+    const box = mailbox(r)
+    const sameBox = () => {
+      const apps = (box && fromMailbox.get(box)) || []
+      const fits = apps.filter((a) => sameTitle(title, a.title) && (r.category !== 'application' || (a.appliedOn === undefined && r.date - a.emails[0].date < 864e5)))
+      return fits.findLast((a) => title && a.title && normalize(title) === normalize(a.title)) ?? fits.at(-1)
+    }
     let app =
       inThread ??
       (title !== undefined ? groups.get(`${companyKey}|${normalize(title)}`) : latestAt.get(companyKey)) ??
+      sameBox() ??
       echo() ??
       // Only an employer's own address: job boards send every application from one sender.
       (recent && r.source === 'direct' && r.date - recent.date < 2 * 3600e3 && sameTitle(title, recent.app.title) ? recent.app : undefined)
@@ -152,7 +182,13 @@ export function buildApplications(records: EmailRecord[]): Application[] {
       groups.set(key, app)
       companyOf.set(app, companyKey)
     }
+    // A confirmation names the employer and job better than a reply that beat it in.
+    if (r.category === 'application' && app.appliedOn === undefined && app.emails.length) {
+      if (r.job.company) app.company = company
+      if (title) app.title = title
+    }
     byThread.set(r.threadId, app)
+    if (box && !fromMailbox.get(box)?.includes(app)) fromMailbox.set(box, [...(fromMailbox.get(box) ?? []), app])
     latestAt.set(companyKey, app)
     lastFrom.set(r.from, { app, date: r.date })
     app.emails.push(r)
@@ -164,6 +200,11 @@ export function buildApplications(records: EmailRecord[]): Application[] {
     app.lastUpdate = r.date
   }
   for (const app of groups.values()) {
+    // No confirmation email (it came before the start date, or never came): the first email is the best guess.
+    if (app.appliedOn === undefined) {
+      app.appliedOn = app.emails[0].date
+      app.appliedGuessed = true
+    }
     app.status = app.emailStatus = statusFromEmails(app.emails)
     // Two red flags is enough to call it; one alone (say, a chat interview) is common in real jobs.
     if (app.scamSigns.length >= 2) app.status = app.emailStatus = 'scam'

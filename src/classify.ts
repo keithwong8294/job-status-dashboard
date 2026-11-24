@@ -53,6 +53,8 @@ const APPLICATION = [
   /(?:we(?:'ve| have)|we) received your (?:application|resume)/i,
   /your application (?:to|for|was sent|has been)/i,
   /successfully (?:applied|submitted)/i,
+  /application with .+ (?:has been|was) (?:received|submitted)/i,
+  /successfully received your (?:application|submission)/i,
   /application confirmation/i,
   /^indeed application:/i,
 ]
@@ -239,7 +241,9 @@ const SUBJECT_PATTERNS: RegExp[] = [
   // "Keith, your application was sent to Acme" (LinkedIn)
   /application was sent to (?<company>.+)$/i,
   // "Thank you for applying to Acme", "An update on your application at Acme"
-  /(?:applying|application|interest|update) (?:to|at|in|with|from) (?<company>.+?)$/i,
+  // "Thank you for Applying to Otsuka - Associate, Systems Analyst"
+  /^thank you for applying (?:to|at|with) (?<company>[^-–|:]+?) [-–|:] (?<title>.+)$/i,
+  /(?:applying|application|interest|update) (?:to|at|in|with|from) (?<company>.+?)(?: (?:has|have) been (?:received|submitted)| (?:was|is) (?:received|submitted|complete))?!?$/i,
   // "Acme - Software Engineer application received"
   /^(?<company>[^-–|:]+?) [-–|:] (?<title>.+?) (?:application|role|position)\b/i,
   // "Software Engineer at Acme"
@@ -254,12 +258,15 @@ const BODY_COMPANY: RegExp[] = [
 
 const BODY_TITLE: RegExp[] = [
   // CUNYfirst / PeopleSoft: "…for the following position(s) submitted on 2026-11-23:\n\n33039-IT Assistant"
-  /\bfollowing (?:position|job|role|opening|requisition)s?(?:\(s\))?[^:\n]{0,40}:[ \t]*\n\s*(?<title>[^\n]{3,120})/i,
+  // CVS (Workday) puts it on the same line: "…to the following position(s): R1093741 Pharmacy Technician (Open) If you would like…"
+  /\bfollowing (?:position|job|role|opening|requisition)s?(?:\(s\))?[^:\n]{0,40}:\s*(?<title>[^\n]{3,120}?)(?=\s+(?:If you|To review|To check|Please|We will|We look|You can|You will|Thank you)\b|\s*\n|$)/i,
+  // "We have received your application for REQ547463 Specialist, Data Center Operations - Union"
+  /received your application for (?:the )?(?<title>(?:REQ|R)\d{4,}[^\n]{3,100}?)\s*(?:\n|$)/,
   /(?:position|role) of ['‘"]?(?<title>[^'’".\n]{3,80}?)['’"]?(?:\.|\n| -\d| at )/i,
   /(?:position|role) ['‘"](?<title>[^'’"\n]{3,80})['’"]/i,
   /(?:applying|application) (?:for|to) the (?<title>[^.\n]{3,80}?) (?:position|role|opening)\b/i,
   // "your interest in Acme and the Jr. Operations Specialist (DTC) position"
-  /\b(?:in|and|for) the (?<title>[A-Z][^\n]{2,80}?) (?:position|role|opening)\b/,
+  /\b(?:in|and|for) the (?<title>[A-Z][^\n]{2,120}?) (?:position|role|opening)\b/,
   /\b(?:the|for|as an?) (?<title>[A-Z][\w/&+.-]*(?: [A-Z][\w/&+.-]*| I{1,3}| of| and){0,6}) (?:[Rr]ole|[Pp]osition|[Oo]pening|[Jj]ob)\b/,
 ]
 
@@ -277,12 +284,13 @@ function cleanup(s?: string): string | undefined {
 }
 
 /** Words the loose "the X position" pattern catches that aren't a job title. */
-const NOT_A_TITLE = /^(?:following|above|below|this|that|same|open|new|selected|applied|available|your|our|an?|any|other|posted|current)$/i
+const NOT_A_TITLE = /^(?:following|above|below|this|that|same|open|new|selected|applied|available|your|our|an?|any|other|posted|current|virtual|remote|hybrid|next|dream|perfect|right)$/i
 
-/** "33039-IT Assistant (Provisional)" → "IT Assistant (Provisional)"; drops filler like "following". */
+/** "33039-IT Assistant" or "REQ547463 Specialist" → the title alone; drops filler like "following" or "Virtual" (Job Tryout). */
 function cleanTitle(s?: string): string | undefined {
-  const t = cleanup(s?.replace(/^\s*(?:req(?:uisition)?\.?\s*#?\s*)?\d{3,}\s*[-–:]\s*/i, ''))
-  return t && !NOT_A_TITLE.test(t) ? t : undefined
+  const t = cleanup(s?.replace(/^\s*(?:(?:REQ|R)\d{4,}\s*[-–:]?\s*|(?:req(?:uisition)?\.?\s*#?\s*)?\d{3,}\s*[-–:]\s*)/i, ''))
+  const bare = t?.replace(/\s*\((?:ID|Req(?:uisition)?|Job ID)\b[^)]*\)$/i, '')
+  return bare && !NOT_A_TITLE.test(bare) ? bare : undefined
 }
 
 /** Trims a company name grabbed from running text: "Acme, LLC. Our team…" → "Acme, LLC". */
@@ -293,7 +301,7 @@ function cleanCompany(s?: string): string | undefined {
 }
 
 function senderCompany(raw: RawEmail): string | undefined {
-  const name = cleanup(raw.fromName.replace(/\b(?:careers|recruiting|talent(?: acquisition)?|human resources|jobs|hr|team|hiring|via \w+)\b/gi, ''))
+  const name = cleanup(raw.fromName.replace(/\b(?:no-?reply|do-?not-?reply|careers|recruiting|talent(?: acquisition)?|human resources|jobs|hr|team|hiring|via \w+)\b/gi, ''))
   if (name && !GENERIC_SENDER.test(name) && !/@/.test(name)) return name
   // "talent@ibm.com" → "ibm"; skip shared hiring-software domains.
   const domain = raw.fromDomain.split('.').slice(-2, -1)[0]
@@ -320,9 +328,11 @@ export function extractJob(raw: RawEmail, source: Source): Job {
     job.company = cleanCompany(body.match(re)?.groups?.company)
   }
   if (!job.company && source === 'direct') job.company = senderCompany(raw)
+  // Body first: the snippet is cut off mid-sentence ("…position(s): R1093741").
+  const titleText = withoutFooter(`${own(raw.body.slice(0, 4000))}\n${own(raw.snippet)}`)
   for (const re of BODY_TITLE) {
     if (job.title) break
-    job.title = cleanTitle(body.match(re)?.groups?.title)
+    job.title = cleanTitle(titleText.match(re)?.groups?.title)
   }
   job.location = parseLocation(`${subject}\n${body}`)
   job.pay = parsePay(body)
