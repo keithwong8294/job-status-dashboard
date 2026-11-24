@@ -1006,14 +1006,20 @@ function leadPlacer(leads: Lead[], applications: Application[], statuses: Map<st
 
 /** Leads that still count: everything except cleared ones and unrelated fields. */
 const isCounted = (v: LeadView) => v !== 'cleared' && v !== 'unrelated'
-type LeadOrder = 'match' | 'date' | 'title' | 'field' | 'location'
+type LeadOrder = 'match' | 'date' | 'pay' | 'title' | 'field' | 'location'
 type LeadGrouping = 'title' | 'field' | 'location'
 const GROUPINGS: LeadGrouping[] = ['title', 'field', 'location']
 const isGrouping = (o: string): o is LeadGrouping => (GROUPINGS as string[]).includes(o)
+/** Orders that can run either way, and what each direction is called. */
+const DIRECTIONS: Partial<Record<LeadOrder, Record<SortDir, string>>> = {
+  date: { desc: 'Newest first', asc: 'Oldest first' },
+  pay: { desc: 'Highest first', asc: 'Lowest first' },
+}
 
 const LEAD_ORDERS: Record<LeadOrder, string> = {
   match: 'Best match',
-  date: 'Newest',
+  date: 'Date received',
+  pay: 'Pay',
   title: 'Job title',
   field: 'Field',
   location: 'Location',
@@ -1071,8 +1077,15 @@ function LeadsTable({
     setThenState(o)
     if (!demo) writeStored('leadThen', o)
   }
+  const [dir, setDirState] = useState<SortDir>(() => (readStored('leadDir') === 'asc' ? 'asc' : 'desc'))
+  const setDir = (d: SortDir) => {
+    setDirState(d)
+    if (!demo) writeStored('leadDir', d)
+  }
   const second = isGrouping(order) && thenBy && thenBy !== order ? thenBy : undefined
-  const rowOrder = order === 'date' || (order === 'match' && !scored) || !scored ? 'date' : 'match'
+  const rowOrder = order === 'pay' ? 'pay' : order === 'date' || !scored ? 'date' : 'match'
+  // Pay and date run whichever way you pick; everything else lists best or newest first.
+  const rowDir: SortDir = DIRECTIONS[order] ? dir : 'desc'
   function groups<T extends Lead>(rows: T[]): RowGroup<T>[] {
     return groupBy(order, rows).map((g) => (second ? { ...g, sub: groupBy(second, g.rows) } : g))
   }
@@ -1141,6 +1154,12 @@ function LeadsTable({
               </option>
             ))}
         </select>
+        {DIRECTIONS[order] && (
+          <select value={dir} onChange={(e) => setDir(e.target.value as SortDir)} aria-label="Sort direction">
+            <option value="desc">{DIRECTIONS[order]!.desc}</option>
+            <option value="asc">{DIRECTIONS[order]!.asc}</option>
+          </select>
+        )}
         {isGrouping(order) && (
           <select value={second ?? ''} onChange={(e) => setThen(e.target.value as LeadGrouping | '')} aria-label="Then group by">
             <option value="">Then by nothing</option>
@@ -1172,9 +1191,9 @@ function LeadsTable({
         )}
       </p>
       <SortableTable
-        key={`${scored ? 'scored' : 'plain'}-${order}-${second ?? ''}`}
+        key={`${scored ? 'scored' : 'plain'}-${order}-${second ?? ''}-${rowDir}`}
         items={items}
-        initial={{ key: rowOrder, dir: 'desc' }}
+        initial={{ key: rowOrder, dir: rowDir }}
         sortable={false}
         groups={isGrouping(order) ? groups : undefined}
         empty={view === 'new' || view === 'recommended' ? 'No new job leads match these filters.' : 'No job leads here yet.'}
